@@ -1,0 +1,11 @@
+# Configuration réelle — jamais commitée (copie de payload.example.json)
+payload.json
+
+# Binaires et artefacts de build
+*.exe
+rsrc.syso
+build/
+
+# Diagnostics locaux
+diagnostic.txt
+*.log

