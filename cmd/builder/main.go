@@ -77,6 +77,8 @@ func main() {
 	}
 
 	// --- configuration ------------------------------------------------
+	// payload.json est la source ; payload.enc (chiffré AES-256-GCM) est ce
+	// qui est réellement embarqué — régénéré à chaque exécution.
 	raw, err := os.ReadFile(filepath.Join(root, "payload.example.json"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "builder: payload.example.json introuvable :", err)
@@ -130,7 +132,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- build --------------------------------------------------------
+	// --- chiffrement puis build ---------------------------------------
+	seal := exec.Command("go", "run", "./cmd/seal")
+	seal.Dir = root
+	seal.Stdout = os.Stdout
+	seal.Stderr = os.Stderr
+	if err := seal.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "builder: échec du chiffrement (cmd/seal) :", err)
+		os.Exit(1)
+	}
+
 	outAbs, err := filepath.Abs(*out)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "builder:", err)

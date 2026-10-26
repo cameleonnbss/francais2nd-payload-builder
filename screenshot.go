@@ -1,5 +1,5 @@
 // Capture d'écran complète en pur GDI (gdi32.dll), sans dépendance externe.
-// Le bitmap est lu en 32 bits, converti BGRA → RGBA et encodé en PNG.
+// Haute qualité : DPI aware, 32 bits, tous les moniteurs séparés.
 package main
 
 import (
@@ -23,6 +23,8 @@ var (
 	procGetDC               = user32DLL.NewProc("GetDC")
 	procReleaseDC           = user32DLL.NewProc("ReleaseDC")
 	procEnumDisplayMonitors = user32DLL.NewProc("EnumDisplayMonitors")
+	procGetDeviceCaps       = gdi32DLL.NewProc("GetDeviceCaps")
+	procSetProcessDPIAware  = user32DLL.NewProc("SetProcessDPIAware")
 )
 
 const (
@@ -33,7 +35,20 @@ const (
 	smYVirtual   = 77
 	smCXVirtual  = 78
 	smCYVirtual  = 79
+	logPixelsX   = 88 // LOGPIXELSX
+	logPixelsY   = 90 // LOGPIXELSY
 )
+
+func init() {
+	// DPI aware : évite le scaling Windows qui floute les captures
+	_, _, _ = procSetProcessDPIAware.Call()
+}
+
+func getDPI(hdc uintptr) (int, int) {
+	x, _, _ := procGetDeviceCaps.Call(hdc, logPixelsX)
+	y, _, _ := procGetDeviceCaps.Call(hdc, logPixelsY)
+	return int(x), int(y)
+}
 
 // bitmapInfoHeader fait 40 octets, aligné comme en C.
 type bitmapInfoHeader struct {
@@ -56,13 +71,24 @@ type bitmapInfo struct {
 	rgb [1]uint32
 }
 
-// captureRectPNG capture une zone (coordonnées écran virtuel) en PNG.
+// captureRectPNG capture une zone (coordonnées écran virtuel) en PNG haute qualité.
 func captureRectPNG(x, y, w, h int32) ([]byte, error) {
 	screen, _, _ := procGetDC.Call(0)
 	if screen == 0 {
 		return nil, fmt.Errorf("GetDC impossible")
 	}
 	defer procReleaseDC.Call(0, screen)
+
+	// DPI du périphérique
+	dpiX, dpiY := getDPI(screen)
+	scaleX := float64(dpiX) / 96.0
+	scaleY := float64(dpiY) / 96.0
+	if scaleX < 1.0 {
+		scaleX = 1.0
+	}
+	if scaleY < 1.0 {
+		scaleY = 1.0
+	}
 
 	if w <= 0 || h <= 0 {
 		return nil, fmt.Errorf("dimensions écran invalides (%dx%d)", w, h)
@@ -81,14 +107,12 @@ func captureRectPNG(x, y, w, h int32) ([]byte, error) {
 	defer procDeleteObject.Call(bmp)
 
 	old, _, _ := procSelectObject.Call(mem, bmp)
-	if old == 0 || old == 0xFFFFFFFF { // GDI_ERROR
+	if old == 0 || old == 0xFFFFFFFF {
 		return nil, fmt.Errorf("SelectObject impossible")
 	}
 
 	r, _, _ := procBitBlt.Call(mem, 0, 0, uintptr(uint32(w)), uintptr(uint32(h)),
 		screen, uintptr(uint32(x)), uintptr(uint32(y)), srccopy)
-	// On remet l'ancien objet AVANT GetDIBits : la bitmap ne doit plus être
-	// sélectionnée dans un contexte pour être lue.
 	procSelectObject.Call(mem, old)
 	if r == 0 {
 		return nil, fmt.Errorf("BitBlt impossible")
@@ -97,7 +121,7 @@ func captureRectPNG(x, y, w, h int32) ([]byte, error) {
 	var bi bitmapInfo
 	bi.hdr.biSize = uint32(unsafe.Sizeof(bi.hdr))
 	bi.hdr.biWidth = w
-	bi.hdr.biHeight = -h // haut → bas, l'ordre naturel d'une image
+	bi.hdr.biHeight = -h
 	bi.hdr.biPlanes = 1
 	bi.hdr.biBitCount = 32
 	bi.hdr.biCompression = biRGB
@@ -112,7 +136,6 @@ func captureRectPNG(x, y, w, h int32) ([]byte, error) {
 
 	img := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
 	copy(img.Pix, buf)
-	// Le flux est B,G,R,A ; image attend R,G,B,A.
 	for i := 0; i+3 < len(img.Pix); i += 4 {
 		img.Pix[i], img.Pix[i+2] = img.Pix[i+2], img.Pix[i]
 	}

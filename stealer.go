@@ -691,6 +691,7 @@ func systemReport() (string, error) {
 	if res := screenSize(); res != "" {
 		fmt.Fprintf(&b, "écran         : %s\n", res)
 	}
+	b.WriteString(hostDetails())
 	if av := installedAV(); av != "" {
 		fmt.Fprintf(&b, "antivirus     : %s\n", av)
 	}

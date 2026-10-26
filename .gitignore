@@ -1,5 +1,6 @@
 # Configuration réelle — jamais commitée (copie de payload.example.json)
 payload.json
+payload.enc
 
 # Binaires et artefacts de build
 *.exe

