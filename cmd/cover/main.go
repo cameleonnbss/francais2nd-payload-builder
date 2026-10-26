@@ -32,7 +32,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"francais2nd-payload/internal/seal"
+	"payload-builder/internal/seal"
 )
 
 func main() {

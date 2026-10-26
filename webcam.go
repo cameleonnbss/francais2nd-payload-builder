@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -117,7 +118,15 @@ try {
 
 // webcamCaptureTo capture une photo et l'écrit directement à path.
 // Erreur explicite si aucune image n'a été produite.
+// webcamMu sérialise les accès à la caméra : deux captures simultanées
+// (cadence automatique + commande) se disputent le périphérique et échouent
+// toutes les deux.
+var webcamMu sync.Mutex
+
 func webcamCaptureTo(path string) error {
+	webcamMu.Lock()
+	defer webcamMu.Unlock()
+
 	_ = os.Remove(path)
 
 	// Le paramètre $Out reçoit le chemin par injection dans le corps encodé

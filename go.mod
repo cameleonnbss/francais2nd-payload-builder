@@ -1,4 +1,4 @@
-module francais2nd-payload
+module payload-builder
 
 go 1.26.7
 
