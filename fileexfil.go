@@ -58,6 +58,11 @@ func exfilRoots() []string {
 // exfilChannelFor renvoie le salon dédié à l'extension. Une extension inconnue
 // part dans `-files-new` (le flux « nouveaux fichiers »).
 func exfilChannelFor(name string) string {
+	// Les évaluations ont leur propre salon : c est le premier endroit que
+	// l opérateur ouvre.
+	if fileScore(name) >= 100 {
+		return channelOrFallback(hostChannelName() + "-files-eval")
+	}
 	ext := strings.ToLower(filepath.Ext(name))
 	host := hostChannelName()
 	switch {
