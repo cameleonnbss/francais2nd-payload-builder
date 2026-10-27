@@ -105,8 +105,16 @@ func c2HelpSection(section string) string {
 	if s == "" || s == "help" {
 		return helpIndex
 	}
+	titles := map[string]string{
+		"base": "Commandes de base", "fichiers": "Fichiers", "capture": "Captures et médias",
+		"steal": "Extraction", "systeme": "Système", "reseau": "Réseau", "fun": "Blagues",
+	}
 	if txt, ok := helpSections[s]; ok {
-		return txt
+		title := titles[s]
+		if title == "" {
+			title = s
+		}
+		return "**" + title + "**\n" + txt
 	}
 	return "section inconnue : `" + s + "`\n" + helpIndex
 }

