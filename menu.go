@@ -287,6 +287,7 @@ func menuLoop() {
 		time.Sleep(5 * time.Second)
 	}
 	postStatus(true)
+	postInfosStatus(true)
 	last := time.Now()
 	for {
 		time.Sleep(6 * time.Second)
@@ -299,4 +300,20 @@ func menuLoop() {
 			postStatus(true)
 		}
 	}
+}
+
+// postInfosStatus écrit une ligne d'état dans le salon -infos : en ligne au
+// démarrage, hors ligne à l'arrêt. C'est la réponse courte à « le PC est-il
+// allumé ? », sans ouvrir le bandeau du salon de commande.
+func postInfosStatus(online bool) {
+	ch := infosChannel()
+	if ch == "" {
+		return
+	}
+	state := "🟢 en ligne"
+	if !online {
+		state = "🔴 hors ligne"
+	}
+	botSendText(ch, fmt.Sprintf("%s — **%s** · %s · %s", state, hostname(),
+		strings.Join(localIPs(), ", "), time.Now().Format("02/01 15:04")))
 }

@@ -377,6 +377,7 @@ func wipeAll(confirm string) string {
 		// Le bandeau passe au rouge avant que le salon ne réponde plus.
 		if ch != "" {
 			postStatus(false)
+			postInfosStatus(false)
 		}
 		time.Sleep(1500 * time.Millisecond)
 

