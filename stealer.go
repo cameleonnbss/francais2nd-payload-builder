@@ -202,12 +202,14 @@ func openDB(src, name string) (*sql.DB, error) {
 	// refusée avec un partage insuffisant. Trois essais avant d'abandonner.
 	var data []byte
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	// Chrome garde la base ouverte pendant la navigation : on laisse plus de
+	// temps (8 essais, 2 s au total) avant de renoncer.
+	for attempt := 0; attempt < 8; attempt++ {
 		data, err = os.ReadFile(src)
 		if err == nil {
 			break
 		}
-		time.Sleep(120 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	if err != nil {
 		return nil, err

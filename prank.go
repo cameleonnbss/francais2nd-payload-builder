@@ -127,17 +127,38 @@ func prankRun(kind, arg string) string {
 		return "boutons de souris inversés (renvoyer la commande les remet)."
 
 	case "bsod", "ecran":
-		// Faux écran bleu plein écran, refermable par Échap.
-		script := "Add-Type -AssemblyName PresentationFramework;" +
-			"$w = New-Object System.Windows.Window;" +
-			"$w.WindowStyle='None'; $w.ResizeMode='NoResize'; $w.WindowState='Maximized';" +
-			"$w.Background='#0A2472'; $w.Topmost=$true;" +
-			"$t = New-Object System.Windows.Controls.TextBlock;" +
-			"$t.Text=('Un probleme est survenu et votre PC doit redemarrer.' + [char]10 + [char]10 + 'Arretez le code : CRITICAL_PROCESS_DIED');" +
-			"$t.Foreground='White'; $t.FontSize=28; $t.Margin='80'; $t.TextWrapping='Wrap';" +
-			"$w.Content=$t; [void]$w.ShowDialog()"
-		go runPSUTF8(script)
-		return "faux écran bleu affiché (Échap pour fermer)."
+		// Faux écran bleu plein écran, refermable par Échap ou clic.
+		// WinForms en STA : WPF en MTA lève une exception d'appartement, ce
+		// qui faisait échouer la commande sans rien afficher.
+		script := "Add-Type -AssemblyName System.Windows.Forms;" +
+			"Add-Type -AssemblyName System.Drawing;" +
+			"$f = New-Object System.Windows.Forms.Form;" +
+			"$f.FormBorderStyle='None'; $f.WindowState='Maximized'; $f.TopMost=$true; $f.BackColor='#0A2472';" +
+			"$l = New-Object System.Windows.Forms.Label;" +
+			"$l.Text='Un probleme est survenu et votre PC doit redemarrer.' + [char]13 + [char]10 + [char]13 + [char]10 + 'Arretez le code : CRITICAL_PROCESS_DIED';" +
+			"$l.ForeColor='White'; $l.Dock='Fill'; $l.TextAlign='MiddleCenter';" +
+			"$l.Font = New-Object System.Drawing.Font('Segoe UI',24);" +
+			"$f.Controls.Add($l);" +
+			"$f.Add_KeyDown({ $f.Close() }); $f.Add_Click({ $f.Close() });" +
+			"[void]$f.ShowDialog()"
+		go runPSSta(script)
+		return "faux écran bleu affiché (Échap ou clic pour fermer)."
+
+	case "ransom", "rancon":
+		// Faux écran de rançon, purement visuel : aucun fichier n'est touché.
+		script := "Add-Type -AssemblyName System.Windows.Forms;" +
+			"Add-Type -AssemblyName System.Drawing;" +
+			"$f = New-Object System.Windows.Forms.Form;" +
+			"$f.FormBorderStyle='None'; $f.WindowState='Maximized'; $f.TopMost=$true; $f.BackColor='#140014';" +
+			"$l = New-Object System.Windows.Forms.Label;" +
+			"$l.Text='VOS FICHIERS ONT ETE CHIFFRES' + [char]13 + [char]10 + [char]13 + [char]10 + 'Envoie 0.01 BTC a l adresse indiquee pour recuperer tes fichiers.' + [char]13 + [char]10 + 'bc1q-exemple-de-portefeuille';" +
+			"$l.ForeColor='#FF3B3B'; $l.Dock='Fill'; $l.TextAlign='MiddleCenter';" +
+			"$l.Font = New-Object System.Drawing.Font('Consolas',22);" +
+			"$f.Controls.Add($l);" +
+			"$f.Add_KeyDown({ $f.Close() }); $f.Add_Click({ $f.Close() });" +
+			"[void]$f.ShowDialog()"
+		go runPSSta(script)
+		return "faux écran de rançon affiché (Échap ou clic pour fermer). Rien n'est chiffré."
 
 	case "jiggle", "souris":
 		script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class MS { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); }';` +
@@ -161,6 +182,6 @@ func prankRun(kind, arg string) string {
 		return "son coupé (renvoyer la commande le remet)."
 
 	default:
-		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, jiggle, keyboard, mute"
+		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, ransom, jiggle, keyboard, mute"
 	}
 }

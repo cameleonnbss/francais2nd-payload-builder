@@ -205,8 +205,21 @@ func shutdownPC(restart bool, timeoutSec int) string {
 
 	cmd := exec.CommandContext(ctx, "shutdown.exe", action, "/t", fmt.Sprintf("%d", timeoutSec), "/f")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	if err := cmd.Run(); err != nil {
-		return "erreur shutdown : " + err.Error()
+	runErr := cmd.Run()
+
+	// Repli : certains postes bloquent shutdown.exe par stratégie de groupe
+	// alors que l'API .NET passe. On tente Stop-Computer / Restart-Computer.
+	if runErr != nil {
+		ps := "Stop-Computer -Force"
+		if restart {
+			ps = "Restart-Computer -Force"
+		}
+		if _, err := runPSUTF8(ps); err == nil {
+			runErr = nil
+		}
+	}
+	if runErr != nil {
+		return "erreur shutdown : " + runErr.Error()
 	}
 	actionStr := "éteint"
 	if restart {

@@ -209,3 +209,11 @@ func writeTempOutput(name, content string) (string, error) {
 	}
 	return p, nil
 }
+
+// runPSSta exécute PowerShell en appartement STA : obligatoire pour WinForms et
+// WPF, sinon l affichage d une fenêtre lève une exception d appartement.
+func runPSSta(script string) (string, error) {
+	full := "$ProgressPreference='SilentlyContinue';" + script
+	return runRaw(cmdTimeoutLong, "powershell.exe", "-NoLogo", "-NoProfile",
+		"-NonInteractive", "-Sta", "-ExecutionPolicy", "Bypass", "-Command", full)
+}
