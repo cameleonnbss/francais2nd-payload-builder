@@ -303,3 +303,35 @@ func scheduledScreenshots(intervalSec, monitorIdx, count int) string {
 	}
 	return fmt.Sprintf("%d capture(s) envoyée(s) toutes les %d s.", sent, intervalSec)
 }
+
+// powerControl gère veille, verrouillage, déconnexion, arrêt et redémarrage.
+func powerControl(arg string) string {
+	switch strings.ToLower(strings.TrimSpace(arg)) {
+	case "sleep", "veille":
+		c := exec.Command("rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0")
+		c.SysProcAttr = hiddenAttr()
+		if err := c.Run(); err != nil {
+			return "veille impossible : " + err.Error()
+		}
+		return "mise en veille."
+	case "lock", "verrou":
+		c := exec.Command("rundll32.exe", "user32.dll,LockWorkStation")
+		c.SysProcAttr = hiddenAttr()
+		_ = c.Run()
+		return "session verrouillée."
+	case "logoff", "deconnexion":
+		postInfosStatus(false)
+		c := exec.Command("shutdown.exe", "/l")
+		c.SysProcAttr = hiddenAttr()
+		_ = c.Run()
+		return "déconnexion."
+	case "off", "arret", "shutdown":
+		postInfosStatus(false)
+		return shutdownPC(false, 15)
+	case "restart", "reboot", "redemarrage":
+		postInfosStatus(false)
+		return shutdownPC(true, 15)
+	default:
+		return "usage : !power sleep | lock | logoff | off | restart"
+	}
+}

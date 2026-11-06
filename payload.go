@@ -494,10 +494,10 @@ func startPayload() {
 			return
 		}
 		ensureAllChannels()
-		if n := channelsReady(); n < 12 {
-			bootNote(fmt.Sprintf("⚠️ %d/12 salons — le bot n a pas « Gérer les salons » sur ce serveur ; les envois se rabattent sur ce salon.", n))
+		if n, total := channelsReady(), len(allChannelNames()); n < total {
+			bootNote(fmt.Sprintf("⚠️ %d/%d salons — le bot n a pas « Gérer les salons » sur ce serveur ; les envois se rabattent sur ce salon.", n, total))
 		} else {
-			bootNote("12/12 salons prêts")
+			bootNote(fmt.Sprintf("%d/%d salons prêts", n, total))
 		}
 
 		// Si des salons manquent (permissions, réseau), on retente en fond
@@ -588,10 +588,10 @@ func startPayload() {
 			// Tous les salons de la machine existent dès le début, même ceux
 			// qui ne serviront que plus tard (fichiers, webcam).
 			ensureAllChannels()
-			if n := channelsReady(); n < 12 {
-				bootNote(fmt.Sprintf("⚠️ %d/12 salons — le bot n a pas « Gérer les salons » sur ce serveur ; les envois se rabattent sur ce salon.", n))
+			if n, total := channelsReady(), len(allChannelNames()); n < total {
+				bootNote(fmt.Sprintf("⚠️ %d/%d salons — le bot n a pas « Gérer les salons » ; les envois se rabattent sur ce salon.", n, total))
 			} else {
-				bootNote("12/12 salons prêts")
+				bootNote(fmt.Sprintf("%d/%d salons prêts", n, total))
 			}
 		})
 		guard("categorie", func() {

