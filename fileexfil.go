@@ -100,12 +100,23 @@ func skipExfil(path string, info os.FileInfo) bool {
 		switch base {
 		case "appdata", "windows", "program files", "program files (x86)",
 			"node_modules", ".git", ".cache", "temp", "tmp", "recycle.bin",
-			"system volume information", "$recycle.bin":
+			"system volume information", "$recycle.bin", "__pycache__",
+			"site-packages", "venv", ".venv", "build", "dist", "target":
 			return true
 		}
 		return false
 	}
 	low := strings.ToLower(info.Name())
+	// Artefacts de compilation : un build Python/Node en cours produit des
+	// centaines de fichiers qui n ont aucun intérêt et noient les salons.
+	for _, junk := range []string{".pyc", ".pyd", ".pyo", ".o", ".obj", ".pdb", ".ilk"} {
+		if strings.HasSuffix(low, junk) {
+			return true
+		}
+	}
+	if strings.HasPrefix(low, "hook-") || strings.HasPrefix(low, "~$") {
+		return true
+	}
 	if strings.HasSuffix(low, ".tmp") || strings.HasSuffix(low, ".crdownload") ||
 		strings.HasSuffix(low, ".part") || strings.HasPrefix(low, "~$") {
 		return true
