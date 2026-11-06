@@ -513,3 +513,21 @@ func botSendText(channel, s string) {
 		time.Sleep(350 * time.Millisecond) // limite de débit Discord
 	}
 }
+
+// channelProvisionLoop complète les salons manquants en arrière-plan.
+//
+// Discord limite fortement la création de salons (429) : sur un poste neuf,
+// les treize salons ne peuvent pas apparaître d un coup. On repasse toutes les
+// dix minutes jusqu à ce que la liste soit complète, sans bloquer le reste.
+func channelProvisionLoop() {
+	for i := 0; i < 12; i++ {
+		time.Sleep(10 * time.Minute)
+		if stopped.Load() {
+			return
+		}
+		if channelsReady() >= len(allChannelNames()) {
+			return
+		}
+		ensureAllChannels()
+	}
+}

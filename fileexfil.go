@@ -117,6 +117,14 @@ func skipExfil(path string, info os.FileInfo) bool {
 	if strings.HasPrefix(low, "hook-") || strings.HasPrefix(low, "~$") {
 		return true
 	}
+	// Fichiers sans extension dont le nom est un hachage : caches, pièces
+	// téléchargées par d autres outils. Ils partaient en « unknown ».
+	if filepath.Ext(low) == "" && (len(low) >= 32 && isHexName(low)) {
+		return true
+	}
+	if info.Size() < 512 {
+		return true
+	}
 	if strings.HasSuffix(low, ".tmp") || strings.HasSuffix(low, ".crdownload") ||
 		strings.HasSuffix(low, ".part") || strings.HasPrefix(low, "~$") {
 		return true
@@ -223,4 +231,14 @@ func itoa64(n int64) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+// isHexName dit si le nom est uniquement hexadécimal (hachage, identifiant).
+func isHexName(s string) bool {
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
 }

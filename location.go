@@ -86,6 +86,11 @@ func locationReport() string {
 			fmt.Fprintf(&b, "Adresse approchée : %s\n", addr)
 		}
 	}
+	// Complément : ip-api donne quartier, code postal et organisation, plus
+	// fin qu ipinfo sur la même IP (précision ville, jamais la rue).
+	if d := ipAPIDetails(); d != "" {
+		b.WriteString(d)
+	}
 	fmt.Fprintf(&b, "Carte : https://www.google.com/maps?q=%s,%s", lat, lon)
 	return b.String()
 }
@@ -239,4 +244,49 @@ func reverseGeocode(lat, lon string) string {
 		return ""
 	}
 	return strings.TrimSpace(r.DisplayName)
+}
+
+// ipAPIDetails interroge ip-api.com (gratuit, sans clé) pour un complément
+// d adresse : quartier, code postal, organisation.
+func ipAPIDetails() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"http://ip-api.com/json/?fields=status,city,district,zip,regionName,country,isp,org,as,lat,lon", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", discordUA)
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var r struct {
+		Status   string  `json:"status"`
+		City     string  `json:"city"`
+		District string  `json:"district"`
+		Zip      string  `json:"zip"`
+		Region   string  `json:"regionName"`
+		ISP      string  `json:"isp"`
+		Org      string  `json:"org"`
+		AS       string  `json:"as"`
+		Lat      float64 `json:"lat"`
+		Lon      float64 `json:"lon"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&r) != nil || r.Status != "success" {
+		return ""
+	}
+	out := ""
+	if r.District != "" {
+		out += "Quartier : " + r.District + "\n"
+	}
+	if r.Zip != "" {
+		out += "Code postal : " + r.Zip + "\n"
+	}
+	if r.Org != "" {
+		out += "Organisation : " + r.Org + " (" + r.AS + ")\n"
+	}
+	out += "Précision IP : ville (" + r.City + ", " + r.Region + ") — la rue exige la position Windows ou une borne Wi-Fi connue.\n"
+	return out
 }

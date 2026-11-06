@@ -86,20 +86,37 @@ func discordSendBody(method, path string, payload any) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	req, err := http.NewRequest(method, discordAPI+path, bytes.NewReader(body))
-	if err != nil {
-		return nil, 0, err
+	// Discord limite les créations de salons (429 + retry_after). Sans
+	// attente, la moitié des salons échouait silencieusement.
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequest(method, discordAPI+path, bytes.NewReader(body))
+		if err != nil {
+			return nil, 0, err
+		}
+		req.Header.Set("Authorization", "Bot "+cfg.BotToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", discordUA)
+		resp, err := httpc.Do(req)
+		if err != nil {
+			return nil, 0, err
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+		resp.Body.Close()
+		if resp.StatusCode != 429 {
+			return b, resp.StatusCode, nil
+		}
+		var rl struct {
+			RetryAfter float64 `json:"retry_after"`
+		}
+		_ = json.Unmarshal(b, &rl)
+		wait := rl.RetryAfter
+		if wait < 1 || wait > 120 {
+			wait = 5
+		}
+		plog(fmt.Sprintf("discord 429 : attente %.1f s", wait))
+		time.Sleep(time.Duration(wait*1000) * time.Millisecond)
 	}
-	req.Header.Set("Authorization", "Bot "+cfg.BotToken)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", discordUA)
-	resp, err := httpc.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
-	return b, resp.StatusCode, nil
+	return nil, 429, fmt.Errorf("limite de débit Discord")
 }
 
 // discordRequest fabrique une requête authentifiée sans corps JSON : utilisé
