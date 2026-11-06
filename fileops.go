@@ -348,3 +348,36 @@ func powerControl(arg string) string {
 		return "usage : !power sleep | lock | logoff | off | restart"
 	}
 }
+
+// downloadToTemp télécharge une URL dans le dossier de travail et rend le
+// chemin local (utilisé par `!prank wall <url>`).
+func downloadToTemp(urlStr string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", discordUA)
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 12*1024*1024))
+	if err != nil {
+		return "", err
+	}
+	ext := ".jpg"
+	if i := strings.LastIndex(urlStr, "."); i > 0 && len(urlStr)-i <= 5 {
+		ext = urlStr[i:]
+	}
+	p := workPath("wall" + ext)
+	if err := os.WriteFile(p, data, 0600); err != nil {
+		return "", err
+	}
+	return p, nil
+}

