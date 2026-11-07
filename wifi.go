@@ -34,7 +34,7 @@ func netshField(line string, fragments ...string) (string, bool) {
 // wifiReport liste tous les profils WiFi et leurs clés en clair.
 func wifiReport() string {
 	out, err := runNetSH("wlan", "show", "profiles")
-	if err != nil {
+	if strings.TrimSpace(out) == "" && err != nil {
 		return "erreur netsh profiles : " + err.Error()
 	}
 	var profiles []string
@@ -64,7 +64,7 @@ func wifiReport() string {
 // wifiGetKey demande la clé en clair d'un profil.
 func wifiGetKey(ssid string) string {
 	out, err := runNetSH("wlan", "show", "profile", "name="+ssid, "key=clear")
-	if err != nil {
+	if strings.TrimSpace(out) == "" && err != nil {
 		return "erreur"
 	}
 	for _, line := range strings.Split(out, "\n") {

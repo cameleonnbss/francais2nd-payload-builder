@@ -60,28 +60,41 @@ func recordMic(seconds int) ([]byte, int, error) {
 	if seconds > 120 {
 		seconds = 120
 	}
-	const rate = 16000
-	const bits = 16
-	const channels = 1
-	var hwi uintptr
-
-	wf := waveFormatEx{
-		FormatTag:      waveFormatPCM,
-		Channels:       channels,
-		SamplesPerSec:  rate,
-		AvgBytesPerSec: rate * channels * bits / 8,
-		BlockAlign:     channels * bits / 8,
-		BitsPerSample:  bits,
+	// Plusieurs formats : certains pilotes refusent 16 kHz mono et acceptent
+	// 44,1 kHz stéréo. On essaie dans l'ordre et on garde le premier accepté.
+	type fmtTry struct{ rate, bits, channels int }
+	tries := []fmtTry{{16000, 16, 1}, {44100, 16, 2}, {48000, 16, 2}, {8000, 16, 1}}
+	var (
+		hwi      uintptr
+		rate     int
+		bits     int
+		channels int
+		lastErr  uintptr
+	)
+	for _, tr := range tries {
+		wf := waveFormatEx{
+			FormatTag:      waveFormatPCM,
+			Channels:       uint16(tr.channels),
+			SamplesPerSec:  uint32(tr.rate),
+			AvgBytesPerSec: uint32(tr.rate * tr.channels * tr.bits / 8),
+			BlockAlign:     uint16(tr.channels * tr.bits / 8),
+			BitsPerSample:  uint16(tr.bits),
+		}
+		r, _, _ := procWaveInOpen.Call(uintptr(unsafe.Pointer(&hwi)), waveMapper,
+			uintptr(unsafe.Pointer(&wf)), 0, 0, 0)
+		if r == 0 {
+			rate, bits, channels = tr.rate, tr.bits, tr.channels
+			break
+		}
+		lastErr = r
+		hwi = 0
 	}
-	r, _, _ := procWaveInOpen.Call(uintptr(unsafe.Pointer(&hwi)), waveMapper,
-		uintptr(unsafe.Pointer(&wf)), 0, 0, 0)
-	if r != 0 {
-		return nil, 0, fmt.Errorf("micro indisponible (code %d)", r)
+	if hwi == 0 {
+		return nil, 0, fmt.Errorf("aucun périphérique d'entrée (code %d)", lastErr)
 	}
 	defer procWaveInClose.Call(hwi)
 
-	// Tampon unique de la durée demandée : plus simple qu'un anneau, et la
-	// mémoire reste raisonnable à 16 kHz mono.
+	// Tampon unique de la durée demandée.
 	size := rate * channels * bits / 8 * seconds
 	buf := make([]byte, size)
 	hdr := waveHdr{

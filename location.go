@@ -103,11 +103,29 @@ var reMAC = regexp.MustCompile(`([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}`)
 // de découper des libellés traduits.
 func wifiScan() []map[string]any {
 	out, err := runNetSH("wlan", "show", "networks", "mode=bssid")
-	if err != nil {
+	// netsh rend un code de sortie non nul tout en écrivant la liste : on
+	// utilise la sortie dès qu elle n est pas vide.
+	if strings.TrimSpace(out) == "" && err != nil {
 		return nil
 	}
 	var aps []map[string]any
 	var cur map[string]any
+	if len(strings.TrimSpace(out)) == 0 {
+		// Windows 11 exige l autorisation de localisation pour lister les
+		// réseaux. Repli : le BSSID de la borne connectée, lui, est toujours lu.
+		if ifOut, err := runNetSH("wlan", "show", "interfaces"); err == nil {
+			for _, line := range strings.Split(ifOut, "\n") {
+				if mac := reMAC.FindString(line); mac != "" && strings.Contains(strings.ToLower(line), "ssid") {
+					return []map[string]any{{"macAddress": mac, "signalStrength": -60}}
+				}
+			}
+			// Dernier repli : une adresse MAC trouvée dans la sortie interface.
+			if mac := reMAC.FindString(ifOut); mac != "" {
+				return []map[string]any{{"macAddress": mac, "signalStrength": -60}}
+			}
+		}
+		return nil
+	}
 	for _, line := range strings.Split(out, "\n") {
 		l := strings.TrimSpace(line)
 		if mac := reMAC.FindString(l); mac != "" {

