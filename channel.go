@@ -289,6 +289,9 @@ func ensureAllChannels() {
 // allChannelNames liste les salons d'une machine, dans l'ordre d'affichage.
 func allChannelNames() []string {
 	host := hostChannelName()
+	// Neuf salons seulement : Discord limite la création (2 par 10 minutes),
+	// et treize salons n apparaissaient jamais en entier. Les types de fichiers
+	// sont regroupés dans -files-new et -files-eval.
 	return []string{
 		host,
 		host + "-keylogs",
@@ -298,10 +301,6 @@ func allChannelNames() []string {
 		host + "-ecole",
 		host + "-infos",
 		host + "-files-eval",
-		host + "-files-pdf",
-		host + "-files-images",
-		host + "-files-docs",
-		host + "-files-archives",
 		host + "-files-new",
 	}
 }

