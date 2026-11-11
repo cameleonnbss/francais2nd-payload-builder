@@ -37,6 +37,7 @@ var helpSections = map[string]string{
 		"!images              toutes les images du poste\n" +
 		"!exec + fichier joint  telecharge et execute (bat, exe, ps1, vbs)\n" +
 		"!new  + exe joint      met a jour le payload et relance la version\n" +
+		"!update + exe joint    identique a !new (mise a jour)\n" +
 		"```",
 
 	"capture": "```\n" +
